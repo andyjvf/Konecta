@@ -1,0 +1,28 @@
+---
+- name: Actualizar AlmaLinux y mostrar versión
+  hosts: all
+  become: yes  # Ejecuta con privilegios de root
+  gather_facts: yes  # Necesario para obtener la versión
+
+  tasks:
+    - name: Actualizar todos los paquetes (AlmaLinux 8/9)
+      dnf:
+        name: "*"
+        state: latest
+        update_cache: yes
+      register: update_result
+      notify: Mostrar versión después de actualizar
+
+    - name: Obtener versión actual de AlmaLinux
+      command: cat /etc/almalinux-release
+      register: almalinux_version
+      changed_when: false  # Siempre ejecuta, pero no marca como cambio
+
+  handlers:
+    - name: Mostrar versión después de actualizar
+      debug:
+        msg: |
+          Actualización completada.
+          Versión anterior: {{ ansible_distribution_version }}
+          Paquetes actualizados: {{ update_result.changed }}
+          Versión actual: {{ almalinux_version.stdout }}
