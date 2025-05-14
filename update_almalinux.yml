@@ -1,9 +1,9 @@
 ---
 - name: Actualizar AlmaLinux y mostrar versión
   hosts: all
-  become: yes  # Ejecuta con privilegios de root
+  become: yes
   become_method: sudo
-  gather_facts: yes  # Necesario para obtener la versión
+  gather_facts: yes
 
   tasks:
     - name: Actualizar todos los paquetes (AlmaLinux 8/9)
@@ -17,7 +17,7 @@
     - name: Obtener versión actual de AlmaLinux
       command: cat /etc/almalinux-release
       register: almalinux_version
-      changed_when: false  # Siempre ejecuta, pero no marca como cambio
+      changed_when: false
 
   handlers:
     - name: Mostrar versión después de actualizar
