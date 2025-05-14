@@ -2,6 +2,7 @@
 - name: Actualizar AlmaLinux y mostrar versión
   hosts: all
   become: yes  # Ejecuta con privilegios de root
+  become_method: sudo
   gather_facts: yes  # Necesario para obtener la versión
 
   tasks:
