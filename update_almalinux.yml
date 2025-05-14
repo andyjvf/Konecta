@@ -10,6 +10,9 @@
         name: "*"
         state: latest
         update_cache: yes
+  become: true  # Añadir esto específicamente para esta tarea
+  become_method: sudo
+  become_user: kopet
       register: update_result
       notify: Mostrar versión después de actualizar
 
