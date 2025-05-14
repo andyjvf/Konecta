@@ -1,4 +1,16 @@
 ---
+- name: Verificar variables de become
+  debug:
+    msg: |
+      become: {{ become }}
+      become_method: {{ become_method }}
+      become_user: {{ become_user }}
+      become_flags: {{ become_flags }}
+
+- name: Verificar conexión SSH
+  debug:
+    var: ansible_user
+    
 - name: Actualizar AlmaLinux usando sudo su
   hosts: all
   become: yes
