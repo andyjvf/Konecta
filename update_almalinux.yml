@@ -1,48 +1,39 @@
 ---
-- name: Verificar variables de become
-  debug:
-    msg: |
-      become: {{ become }}
-      become_method: {{ become_method }}
-      become_user: {{ become_user }}
-      become_flags: {{ become_flags }}
-
-- name: Verificar conexión SSH
-  debug:
-    var: ansible_user
-    
-- name: Actualizar AlmaLinux usando sudo su
+- name: Actualización Segura de AlmaLinux con Verificación
   hosts: all
-  become: yes
-  become_method: sudo          # Usa sudo para escalar
-  become_flags: "su -"         # Fuerza el uso de 'sudo su -' en lugar de solo 'sudo'
-  gather_facts: yes
+  become: true
+  become_method: sudo
+  become_user: root
+  gather_facts: true
 
   tasks:
-    - name: Actualizar todos los paquetes (AlmaLinux 8/9)
+    # Primero verificamos que la escalación funciona
+    - name: Verificar usuario actual después de become
+      command: whoami
+      register: whoami_result
+      changed_when: false
+
+    - name: Mostrar usuario real
+      debug:
+        var: whoami_result.stdout
+
+    # Luego ejecutamos la actualización
+    - name: Actualizar todos los paquetes
       dnf:
         name: "*"
         state: latest
         update_cache: yes
       register: update_result
-      notify: Mostrar versión después de actualizar
 
-    - name: Verificar usuario actual (debug)
-      command: whoami
-      register: current_user
-      changed_when: false
-      ignore_errors: yes
+    - name: Mostrar resultados de la actualización
+      debug:
+        var: update_result
 
     - name: Obtener versión de AlmaLinux
       command: cat /etc/almalinux-release
       register: almalinux_version
       changed_when: false
 
-  handlers:
-    - name: Mostrar versión después de actualizar
+    - name: Mostrar versión del sistema
       debug:
-        msg: |
-          Usuario ejecutando la tarea: {{ current_user.stdout }}
-          Actualización completada.
-          Versión actual: {{ almalinux_version.stdout }}
-          Cambios realizados: {{ update_result.changed }}
+        msg: "Versión actual del sistema: {{ almalinux_version.stdout }}"
