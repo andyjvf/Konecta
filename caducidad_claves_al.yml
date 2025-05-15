@@ -1,44 +1,76 @@
 ---
-- name: Verificación de caducidad de contraseñas para usuario kopet
+- name: Verificación de caducidad de contraseñas en AlmaLinux
   hosts: all
   remote_user: kopet
-  gather_facts: false
+  gather_facts: true
 
   vars:
     telegram_bot_token: "7752861813:AAFmFHaKUIPgo9Qsr5sS2DDV_vSbCv9t4wY"
     telegram_chat_id: "@andyjvf_bot"
     dias_alerta: 30
-    max_dias_clave: 90
 
   tasks:
-    - name: Verificar permisos del usuario kopet en /etc/shadow
-      stat:
-        path: /etc/shadow
-      register: shadow_perms
+    - name: Verificar si el comando chage está disponible
+      command: which chage
+      register: chage_check
+      changed_when: false
+      ignore_errors: yes
 
-    - name: Verificar si kopet puede leer /etc/shadow
-      assert:
-        that:
-          - shadow_perms.stat.exists
-          - shadow_perms.stat.readable
-        fail_msg: "El usuario kopet no tiene permisos para leer /etc/shadow"
-        success_msg: "Permisos de lectura confirmados"
-
-    - name: Obtener usuarios con contraseña por expirar (método seguro)
+    - name: Obtener información de expiración (método para AlmaLinux)
       shell: |
-        # Método que usa getent en lugar de acceso directo a /etc/shadow
+        # Método compatible con AlmaLinux usando chage
         today=$(date +%s)
-        getent shadow | awk -F: '$2 !~ /^[*!]/ {print $1":"$3":"$5}' | while IFS=: read -r user last_change max_days; do
-          if [ -n "$last_change" ] && [ "$max_days" -eq "$max_days" ] 2>/dev/null; then
-            expire_date=$((last_change * 86400 + max_days * 86400))
-            remaining_days=$(( (expire_date - today) / 86400 ))
+        for user in $(getent passwd | cut -d: -f1); do
+          if sudo -l -U "$user" | grep -q "(ALL : ALL)"; then
+            continue  # Saltar usuarios con privilegios sudo
+          fi
+          
+          expiry_info=$(sudo chage -l "$user" 2>/dev/null | grep "Password expires")
+          if [[ "$expiry_info" == *"never"* ]]; then
+            continue
+          elif [[ "$expiry_info" =~ ([A-Za-z]{3} [0-9]{2}, [0-9]{4}) ]]; then
+            expiry_date=$(date -d "${BASH_REMATCH[1]}" +%s)
+            remaining_days=$(( (expiry_date - today) / 86400 ))
             if [ $remaining_days -gt 0 ] && [ $remaining_days -lt {{ dias_alerta }} ]; then
               echo "$user:$remaining_days días"
             fi
           fi
         done
+      args:
+        executable: /bin/bash
       register: usuarios_por_expiar
       changed_when: false
+      when: chage_check is not failed
+
+    - name: Método alternativo si chage no está disponible
+      shell: |
+        # Método alternativo usando passwd -S
+        today=$(date +%s)
+        for user in $(getent passwd | cut -d: -f1); do
+          if sudo -l -U "$user" | grep -q "(ALL : ALL)"; then
+            continue
+          fi
+          
+          pwd_info=$(sudo passwd -S "$user" 2>/dev/null)
+          if [[ "$pwd_info" == *"Password locked"* ]] || [[ "$pwd_info" == *"LK"* ]]; then
+            continue
+          elif [[ "$pwd_info" =~ ([0-9]{2}/[0-9]{2}/[0-9]{4}) ]]; then
+            expiry_date=$(date -d "${BASH_REMATCH[1]}" +%s)
+            remaining_days=$(( (expiry_date - today) / 86400 ))
+            if [ $remaining_days -gt 0 ] && [ $remaining_days -lt {{ dias_alerta }} ]; then
+              echo "$user:$remaining_days días"
+            fi
+          fi
+        done
+      args:
+        executable: /bin/bash
+      register: usuarios_por_expiar_alt
+      changed_when: false
+      when: chage_check is failed
+
+    - name: Combinar resultados
+      set_fact:
+        usuarios_finales: "{{ (usuarios_por_expiar.stdout_lines if chage_check is not failed else usuarios_por_expiar_alt.stdout_lines) | default([]) }}"
 
     - name: Enviar reporte a Telegram
       uri:
@@ -48,23 +80,21 @@
         body:
           chat_id: "{{ telegram_chat_id }}"
           text: |
-            🔐 *Reporte de Contraseñas - {{ inventory_hostname }}*
+            🔐 *Reporte de Contraseñas - {{ ansible_hostname }}*
+            *Sistema*: {{ ansible_distribution }} {{ ansible_distribution_version }}
             
-            *Ejecutado como*: kopet
-            *Método usado*: getent shadow
-            
-            {% if usuarios_por_expiar.stdout_lines %}
-            *⚠️ Usuarios por expirar (menos de {{ dias_alerta }} días)*:
-            {% for linea in usuarios_por_expiar.stdout_lines %}
-            - {{ linea }}
+            *Usuarios por expirar (menos de {{ dias_alerta }} días)*:
+            {% if usuarios_finales %}
+            {% for user in usuarios_finales %}
+            - {{ user }}
             {% endfor %}
             {% else %}
-            *✅ Todas las contraseñas están vigentes*
+            ✅ No hay usuarios con contraseña por expirar
             {% endif %}
             
-            *Política*:
-            - Cambio cada {{ max_dias_clave }} días
-            - Aviso con {{ dias_alerta }} días de anticipación
+            *Detalles*:
+            - Usuario ejecutor: kopet
+            - Fecha de verificación: {{ ansible_date_time.date }}
           parse_mode: "markdown"
       delegate_to: localhost
       run_once: true
