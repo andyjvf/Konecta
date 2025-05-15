@@ -1,22 +1,35 @@
 ---
-- name: Verificar caducidad de contraseñas y enviar alerta por Telegram
+- name: Verificación de caducidad de contraseñas con alerta en Telegram
   hosts: all
-  become: yes
+  become: true
+  become_method: sudo
+  become_user: root
+  gather_facts: true
+
   vars:
-    ansible_become_flags: ''
     telegram_bot_token: "7752861813:AAFmFHaKUIPgo9Qsr5sS2DDV_vSbCv9t4wY"
     telegram_chat_id: "@andyjvf_bot"
     dias_alerta: 30
-    
+    max_dias_clave: 90
+
   tasks:
-    - name: Verificar usuarios con contraseña por expirar (método compatible)
+    - name: Verificar que la escalación de privilegios funciona
+      command: whoami
+      register: whoami_result
+      changed_when: false
+
+    - name: Mostrar usuario actual (para depuración)
+      debug:
+        var: whoami_result.stdout
+
+    - name: Obtener usuarios con contraseña por expirar (método compatible)
       shell: |
         today=$(date +%s)
         while IFS=: read -r user _ last_change _ max_days _; do
           if [[ -n "$last_change" && "$max_days" =~ ^[0-9]+$ ]]; then
             expire_date=$((last_change * 86400 + max_days * 86400))
             remaining_days=$(( (expire_date - today) / 86400 ))
-            if (( remaining_days > 0 && remaining_days < dias_alerta )); then
+            if (( remaining_days > 0 && remaining_days < {{ dias_alerta }} )); then
               echo "$user:$remaining_days días"
             fi
           fi
@@ -25,10 +38,8 @@
         executable: /bin/bash
       register: usuarios_por_expiar
       changed_when: false
-      environment:
-        dias_alerta: "{{ dias_alerta }}"
 
-    - name: Enviar alerta por Telegram
+    - name: Enviar alerta consolidada por Telegram
       uri:
         url: "https://api.telegram.org/bot{{ telegram_bot_token }}/sendMessage"
         method: POST
@@ -36,17 +47,22 @@
         body:
           chat_id: "{{ telegram_chat_id }}"
           text: |
-            🔔 Alerta de Contraseñas
-            Host: {{ inventory_hostname }}
+            🔐 *Reporte de Caducidad de Contraseñas*
+            *Host*: {{ inventory_hostname }}
+            *Usuario ejecutor*: {{ whoami_result.stdout }}
             
             {% if usuarios_por_expiar.stdout_lines %}
-            Usuarios por expirar:
-            {% for linea in usuarios_por_expiar.stdout_lines %}
-            - {{ linea }}
+            *Usuarios por expirar (menos de {{ dias_alerta }} días)*:
+            {% for usuario in usuarios_por_expiar.stdout_lines %}
+            - {{ usuario }}
             {% endfor %}
             {% else %}
-            ✅ Todas las contraseñas están al día
+            *✅ Todos los usuarios cumplen con la política*
             {% endif %}
+            
+            *Política actual*: 
+            - Cambio cada {{ max_dias_clave }} días
+            - Aviso con {{ dias_alerta }} días de anticipación
           parse_mode: "markdown"
       delegate_to: localhost
       run_once: true
