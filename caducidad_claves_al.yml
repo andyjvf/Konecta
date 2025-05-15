@@ -1,10 +1,8 @@
 ---
-- name: Verificación de caducidad de contraseñas con alerta en Telegram
+- name: Verificación de caducidad de contraseñas para usuario kopet
   hosts: all
-  become: true
-  become_method: sudo
-  become_user: root
-  gather_facts: true
+  remote_user: kopet
+  gather_facts: false
 
   vars:
     telegram_bot_token: "7752861813:AAFmFHaKUIPgo9Qsr5sS2DDV_vSbCv9t4wY"
@@ -13,33 +11,36 @@
     max_dias_clave: 90
 
   tasks:
-    - name: Verificar que la escalación de privilegios funciona
-      command: whoami
-      register: whoami_result
-      changed_when: false
+    - name: Verificar permisos del usuario kopet en /etc/shadow
+      stat:
+        path: /etc/shadow
+      register: shadow_perms
 
-    - name: Mostrar usuario actual (para depuración)
-      debug:
-        var: whoami_result.stdout
+    - name: Verificar si kopet puede leer /etc/shadow
+      assert:
+        that:
+          - shadow_perms.stat.exists
+          - shadow_perms.stat.readable
+        fail_msg: "El usuario kopet no tiene permisos para leer /etc/shadow"
+        success_msg: "Permisos de lectura confirmados"
 
-    - name: Obtener usuarios con contraseña por expirar (método compatible)
+    - name: Obtener usuarios con contraseña por expirar (método seguro)
       shell: |
+        # Método que usa getent en lugar de acceso directo a /etc/shadow
         today=$(date +%s)
-        while IFS=: read -r user _ last_change _ max_days _; do
-          if [[ -n "$last_change" && "$max_days" =~ ^[0-9]+$ ]]; then
+        getent shadow | awk -F: '$2 !~ /^[*!]/ {print $1":"$3":"$5}' | while IFS=: read -r user last_change max_days; do
+          if [ -n "$last_change" ] && [ "$max_days" -eq "$max_days" ] 2>/dev/null; then
             expire_date=$((last_change * 86400 + max_days * 86400))
             remaining_days=$(( (expire_date - today) / 86400 ))
-            if (( remaining_days > 0 && remaining_days < {{ dias_alerta }} )); then
+            if [ $remaining_days -gt 0 ] && [ $remaining_days -lt {{ dias_alerta }} ]; then
               echo "$user:$remaining_days días"
             fi
           fi
-        done < <(awk -F: '$2 !~ /^[*!]/ {print $1":"$3":"$5}' /etc/shadow)
-      args:
-        executable: /bin/bash
+        done
       register: usuarios_por_expiar
       changed_when: false
 
-    - name: Enviar alerta consolidada por Telegram
+    - name: Enviar reporte a Telegram
       uri:
         url: "https://api.telegram.org/bot{{ telegram_bot_token }}/sendMessage"
         method: POST
@@ -47,20 +48,21 @@
         body:
           chat_id: "{{ telegram_chat_id }}"
           text: |
-            🔐 *Reporte de Caducidad de Contraseñas*
-            *Host*: {{ inventory_hostname }}
-            *Usuario ejecutor*: {{ whoami_result.stdout }}
+            🔐 *Reporte de Contraseñas - {{ inventory_hostname }}*
+            
+            *Ejecutado como*: kopet
+            *Método usado*: getent shadow
             
             {% if usuarios_por_expiar.stdout_lines %}
-            *Usuarios por expirar (menos de {{ dias_alerta }} días)*:
-            {% for usuario in usuarios_por_expiar.stdout_lines %}
-            - {{ usuario }}
+            *⚠️ Usuarios por expirar (menos de {{ dias_alerta }} días)*:
+            {% for linea in usuarios_por_expiar.stdout_lines %}
+            - {{ linea }}
             {% endfor %}
             {% else %}
-            *✅ Todos los usuarios cumplen con la política*
+            *✅ Todas las contraseñas están vigentes*
             {% endif %}
             
-            *Política actual*: 
+            *Política*:
             - Cambio cada {{ max_dias_clave }} días
             - Aviso con {{ dias_alerta }} días de anticipación
           parse_mode: "markdown"
