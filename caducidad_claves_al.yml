@@ -1,5 +1,5 @@
 ---
-- name: Verificación de caducidad de contraseñas en AlmaLinux
+- name: Verificación de caducidad de contraseñas para grupo manager en AlmaLinux
   hosts: all
   remote_user: kopet
   gather_facts: true
@@ -8,69 +8,42 @@
     telegram_bot_token: "7752861813:AAFmFHaKUIPgo9Qsr5sS2DDV_vSbCv9t4wY"
     telegram_chat_id: "@andyjvf_bot"
     dias_alerta: 30
+    grupo_objetivo: "manager"  # Especificamos el grupo a verificar
 
   tasks:
-    - name: Verificar si el comando chage está disponible
-      command: which chage
-      register: chage_check
+    - name: Verificar si el grupo manager existe
+      shell: "getent group {{ grupo_objetivo }}"
+      register: grupo_check
       changed_when: false
       ignore_errors: yes
 
-    - name: Obtener información de expiración (método para AlmaLinux)
-      shell: |
-        # Método compatible con AlmaLinux usando chage
-        today=$(date +%s)
-        for user in $(getent passwd | cut -d: -f1); do
-          if sudo -l -U "$user" | grep -q "(ALL : ALL)"; then
-            continue  # Saltar usuarios con privilegios sudo
-          fi
-          
-          expiry_info=$(sudo chage -l "$user" 2>/dev/null | grep "Password expires")
-          if [[ "$expiry_info" == *"never"* ]]; then
-            continue
-          elif [[ "$expiry_info" =~ ([A-Za-z]{3} [0-9]{2}, [0-9]{4}) ]]; then
-            expiry_date=$(date -d "${BASH_REMATCH[1]}" +%s)
-            remaining_days=$(( (expiry_date - today) / 86400 ))
-            if [ $remaining_days -gt 0 ] && [ $remaining_days -lt {{ dias_alerta }} ]; then
-              echo "$user:$remaining_days días"
-            fi
-          fi
-        done
-      args:
-        executable: /bin/bash
-      register: usuarios_por_expiar
-      changed_when: false
-      when: chage_check is not failed
+    - name: Obtener usuarios del grupo manager con contraseñas por expirar
+      block:
+        - name: Obtener lista de usuarios del grupo manager
+          shell: "getent group {{ grupo_objetivo }} | cut -d: -f4 | tr ',' '\n'"
+          register: usuarios_manager
+          changed_when: false
 
-    - name: Método alternativo si chage no está disponible
-      shell: |
-        # Método alternativo usando passwd -S
-        today=$(date +%s)
-        for user in $(getent passwd | cut -d: -f1); do
-          if sudo -l -U "$user" | grep -q "(ALL : ALL)"; then
-            continue
-          fi
-          
-          pwd_info=$(sudo passwd -S "$user" 2>/dev/null)
-          if [[ "$pwd_info" == *"Password locked"* ]] || [[ "$pwd_info" == *"LK"* ]]; then
-            continue
-          elif [[ "$pwd_info" =~ ([0-9]{2}/[0-9]{2}/[0-9]{4}) ]]; then
-            expiry_date=$(date -d "${BASH_REMATCH[1]}" +%s)
-            remaining_days=$(( (expiry_date - today) / 86400 ))
-            if [ $remaining_days -gt 0 ] && [ $remaining_days -lt {{ dias_alerta }} ]; then
-              echo "$user:$remaining_days días"
+        - name: Verificar expiración de contraseñas para cada usuario
+          shell: |
+            today=$(date +%s)
+            user="{{ item }}"
+            expiry_info=$(sudo chage -l "$user" 2>/dev/null | grep "Password expires")
+            if [[ "$expiry_info" == *"never"* ]]; then
+              echo ""
+            elif [[ "$expiry_info" =~ ([A-Za-z]{3} [0-9]{2}, [0-9]{4}) ]]; then
+              expiry_date=$(date -d "${BASH_REMATCH[1]}" +%s)
+              remaining_days=$(( (expiry_date - today) / 86400 ))
+              if [ $remaining_days -gt 0 ] && [ $remaining_days -lt {{ dias_alerta }} ]; then
+                echo "$user:$remaining_days días"
+              fi
             fi
-          fi
-        done
-      args:
-        executable: /bin/bash
-      register: usuarios_por_expiar_alt
-      changed_when: false
-      when: chage_check is failed
-
-    - name: Combinar resultados
-      set_fact:
-        usuarios_finales: "{{ (usuarios_por_expiar.stdout_lines if chage_check is not failed else usuarios_por_expiar_alt.stdout_lines) | default([]) }}"
+          args:
+            executable: /bin/bash
+          with_items: "{{ usuarios_manager.stdout_lines[0].split(',') }}"
+          register: usuarios_por_expiar
+          changed_when: false
+      when: grupo_check is not failed
 
     - name: Enviar reporte a Telegram
       uri:
@@ -81,15 +54,20 @@
           chat_id: "{{ telegram_chat_id }}"
           text: |
             🔐 *Reporte de Contraseñas - {{ ansible_hostname }}*
+            *Grupo verificado*: {{ grupo_objetivo }}
             *Sistema*: {{ ansible_distribution }} {{ ansible_distribution_version }}
             
+            {% if grupo_check is failed %}
+            ❌ El grupo {{ grupo_objetivo }} no existe en el sistema
+            {% elif usuarios_por_expiar.results | map(attribute='stdout') | select('match','.+') | list %}
             *Usuarios por expirar (menos de {{ dias_alerta }} días)*:
-            {% if usuarios_finales %}
-            {% for user in usuarios_finales %}
-            - {{ user }}
+            {% for result in usuarios_por_expiar.results %}
+              {% if result.stdout %}
+              - {{ result.stdout }}
+              {% endif %}
             {% endfor %}
             {% else %}
-            ✅ No hay usuarios con contraseña por expirar
+            ✅ No hay usuarios del grupo {{ grupo_objetivo }} con contraseña por expirar
             {% endif %}
             
             *Detalles*:
