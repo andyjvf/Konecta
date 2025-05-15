@@ -3,40 +3,32 @@
   hosts: all
   become: yes
   vars:
-    # Configuración de Telegram
+    ansible_become_flags: ''
     telegram_bot_token: "7752861813:AAFmFHaKUIPgo9Qsr5sS2DDV_vSbCv9t4wY"
     telegram_chat_id: "@andyjvf_bot"
-    dias_alerta: 30                      # Alertar cuando falten 30 días para expirar
+    dias_alerta: 30
     
-    # Configuración de políticas de contraseñas
-    max_dias_clave: 90                   # Máximo de días para cambiar la contraseña
-    min_dias_clave: 1                    # Mínimo de días para cambiar la contraseña
-    dias_aviso_clave: 30                 # Días de aviso antes de expirar
-
   tasks:
-    - name: Obtener información de expiración de contraseñas
+    - name: Verificar usuarios con contraseña por expirar (método compatible)
       shell: |
-        cat /etc/shadow | awk -F: '{
-          if ($2 != "*" && $2 != "!!") {
-            cmd = "date -d \""$3" days\" +%s";
-            cmd | getline last_change;
-            close(cmd);
-            cmd = "date +%s";
-            cmd | getline now;
-            close(cmd);
-            max_days = $5;
-            if (max_days == "") max_days = {{ max_dias_clave }};
-            expire = last_change + (max_days * 86400);
-            remaining = (expire - now)/86400;
-            if (remaining < {{ dias_alerta }} && remaining > 0) {
-              print $1":"int(remaining)" días";
-            }
-          }
-        }'
+        today=$(date +%s)
+        while IFS=: read -r user _ last_change _ max_days _; do
+          if [[ -n "$last_change" && "$max_days" =~ ^[0-9]+$ ]]; then
+            expire_date=$((last_change * 86400 + max_days * 86400))
+            remaining_days=$(( (expire_date - today) / 86400 ))
+            if (( remaining_days > 0 && remaining_days < dias_alerta )); then
+              echo "$user:$remaining_days días"
+            fi
+          fi
+        done < <(awk -F: '$2 !~ /^[*!]/ {print $1":"$3":"$5}' /etc/shadow)
+      args:
+        executable: /bin/bash
       register: usuarios_por_expiar
       changed_when: false
+      environment:
+        dias_alerta: "{{ dias_alerta }}"
 
-    - name: Enviar alerta por Telegram si hay usuarios con contraseña por expirar
+    - name: Enviar alerta por Telegram
       uri:
         url: "https://api.telegram.org/bot{{ telegram_bot_token }}/sendMessage"
         method: POST
@@ -44,38 +36,17 @@
         body:
           chat_id: "{{ telegram_chat_id }}"
           text: |
-            🔔 **Alerta de Caducidad de Contraseñas** 🔔
-            🖥️ Host: {{ inventory_hostname }}
-            📅 Política: Cambio cada {{ max_dias_clave }} días (Aviso a {{ dias_aviso_clave }} días)
+            🔔 Alerta de Contraseñas
+            Host: {{ inventory_hostname }}
             
-            👤 Usuarios con contraseña por expirar:
             {% if usuarios_por_expiar.stdout_lines %}
-            {% for usuario in usuarios_por_expiar.stdout_lines %}
-            - {{ usuario }}
+            Usuarios por expirar:
+            {% for linea in usuarios_por_expiar.stdout_lines %}
+            - {{ linea }}
             {% endfor %}
             {% else %}
-            ✅ No hay usuarios con contraseña por expirar.
+            ✅ Todas las contraseñas están al día
             {% endif %}
-            
-            ⏳ Próximo chequeo: {{ ansible_date_time.date }}
           parse_mode: "markdown"
-      when: usuarios_por_expiar.stdout_lines | length > 0
-      delegate_to: localhost
-      run_once: true
-
-    - name: Enviar confirmación cuando no hay usuarios por expirar
-      uri:
-        url: "https://api.telegram.org/bot{{ telegram_bot_token }}/sendMessage"
-        method: POST
-        body_format: json
-        body:
-          chat_id: "{{ telegram_chat_id }}"
-          text: |
-            🔍 **Verificación de Contraseñas Completa**
-            🖥️ Host: {{ inventory_hostname }}
-            ✅ Resultado: No hay usuarios con contraseña por expirar en los próximos {{ dias_alerta }} días
-            📅 Próximo chequeo: {{ ansible_date_time.date }}
-          parse_mode: "markdown"
-      when: usuarios_por_expiar.stdout_lines | length == 0
       delegate_to: localhost
       run_once: true
