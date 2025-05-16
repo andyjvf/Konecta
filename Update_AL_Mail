@@ -1,0 +1,69 @@
+---
+- name: Actualización Segura de AlmaLinux con Verificación y Notificación
+  hosts: all
+  become: true
+  become_method: sudo
+  become_user: root
+  gather_facts: true
+
+  tasks:
+    # Verificación de escalación de privilegios
+    - name: Verificar usuario actual después de become
+      command: whoami
+      register: whoami_result
+      changed_when: false
+
+    - name: Mostrar usuario real
+      debug:
+        var: whoami_result.stdout
+
+    # Actualización del sistema
+    - name: Actualizar todos los paquetes
+      dnf:
+        name: "*"
+        state: latest
+        update_cache: yes
+      register: update_result
+
+    - name: Mostrar resultados de la actualización
+      debug:
+        var: update_result
+
+    # Obtención de información del sistema
+    - name: Obtener versión de AlmaLinux
+      command: cat /etc/almalinux-release
+      register: almalinux_version
+      changed_when: false
+
+    - name: Obtener hostname del sistema
+      command: hostname
+      register: system_hostname
+      changed_when: false
+
+    - name: Mostrar versión del sistema
+      debug:
+        msg: "Versión actual del sistema: {{ almalinux_version.stdout }}"
+
+    # Configuración del correo electrónico
+    - name: Enviar notificación por correo electrónico
+      mail:
+        host: "smtp.gmail.com"  # Cambiar por tu servidor SMTP
+        port: 587                  # Puerto SMTP (587 para TLS)
+        username: "alertas.sistemas.pe@konecta.com"  # Tu usuario SMTP
+        password: "ihxhnkrmorlzjows"    # Tu contraseña SMTP
+        to: "alertas.sistemas.pe@konecta.com"  # Correo destino
+        subject: "Resultado actualización en {{ system_hostname.stdout }}"
+        body: |
+          Se ha ejecutado la actualización de paquetes en el sistema {{ system_hostname.stdout }}.
+          
+          Versión del sistema: {{ almalinux_version.stdout }}
+          
+          Resultado de la actualización:
+          - Paquetes actualizados: {{ update_result.changed|length if update_result.changed is defined else '0' }}
+          - Paquetes que ya estaban actualizados: {{ update_result.unchanged|length if update_result.unchanged is defined else '0' }}
+          
+          Detalles completos disponibles en los logs de Ansible.
+        subtype: html
+        secure: starttls
+      delegate_to: localhost
+      when: update_result is defined
