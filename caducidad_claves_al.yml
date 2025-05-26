@@ -1,78 +1,104 @@
 ---
-- name: Verificación de caducidad de contraseñas para grupo manager en AlmaLinux
+- name: Reporte de seguridad - Usuarios con clave vencida y deshabilitados
   hosts: all
   remote_user: kopet
   gather_facts: true
-
   vars:
-    telegram_bot_token: "7752861813:AAFmFHaKUIPgo9Qsr5sS2DDV_vSbCv9t4wY"
-    telegram_chat_id: "@andyjvf_bot"
-    dias_alerta: 30
-    grupo_objetivo: "manager"  # Especificamos el grupo a verificar
+    # Configuración SMTP Gmail
+    smtp_host: "smtp.gmail.com"
+    smtp_port: 587
+    smtp_username: "alertas.sistemas.pe@konecta.com"
+    smtp_password: "vkbjwqfcqcnrgftg"  # Usar Ansible Vault para esto
+    email_from: "alertas.sistemas.pe@konecta.com"
+    email_to: "sistemas.peru@konecta.com"
+    
+    # Configuración del reporte
+    dias_inactividad: 90  # Número de días para considerar cuenta inactiva
+    grupo_objetivo: "manager"  # Grupo a verificar (opcional)
 
   tasks:
-    - name: Verificar si el grupo manager existe
-      shell: "getent group {{ grupo_objetivo }}"
-      register: grupo_check
-      changed_when: false
-      ignore_errors: yes
-
-    - name: Obtener usuarios del grupo manager con contraseñas por expirar
+    - name: Verificar usuarios con contraseñas vencidas
       block:
-        - name: Obtener lista de usuarios del grupo manager
-          shell: "getent group {{ grupo_objetivo }} | cut -d: -f4 | tr ',' '\n'"
-          register: usuarios_manager
-          changed_when: false
-
-        - name: Verificar expiración de contraseñas para cada usuario
+        - name: Obtener lista de usuarios con contraseña vencida
           shell: |
             today=$(date +%s)
-            user="{{ item }}"
-            expiry_info=$(sudo chage -l "$user" 2>/dev/null | grep "Password expires")
-            if [[ "$expiry_info" == *"never"* ]]; then
-              echo ""
-            elif [[ "$expiry_info" =~ ([A-Za-z]{3} [0-9]{2}, [0-9]{4}) ]]; then
-              expiry_date=$(date -d "${BASH_REMATCH[1]}" +%s)
-              remaining_days=$(( (expiry_date - today) / 86400 ))
-              if [ $remaining_days -gt 0 ] && [ $remaining_days -lt {{ dias_alerta }} ]; then
-                echo "$user:$remaining_days días"
+            for user in $(cut -d: -f1 /etc/passwd); do
+              expiry_info=$(sudo chage -l "$user" 2>/dev/null | grep "Password expires")
+              if [[ "$expiry_info" == *"password must be changed"* ]]; then
+                echo "$user:CONTRASEÑA VENCIDA"
+              elif [[ "$expiry_info" =~ ([A-Za-z]{3} [0-9]{2}, [0-9]{4}) ]]; then
+                expiry_date=$(date -d "${BASH_REMATCH[1]}" +%s)
+                if [ $today -gt $expiry_date ]; then
+                  echo "$user:CONTRASEÑA VENCIDA"
+                fi
               fi
-            fi
+            done
           args:
             executable: /bin/bash
-          with_items: "{{ usuarios_manager.stdout_lines[0].split(',') }}"
-          register: usuarios_por_expiar
+          register: usuarios_vencidos
           changed_when: false
-      when: grupo_check is not failed
 
-    - name: Enviar reporte a Telegram
-      uri:
-        url: "https://api.telegram.org/bot{{ telegram_bot_token }}/sendMessage"
-        method: POST
-        body_format: json
-        body:
-          chat_id: "{{ telegram_chat_id }}"
-          text: |
-            🔐 *Reporte de Contraseñas - {{ ansible_hostname }}*
-            *Grupo verificado*: {{ grupo_objetivo }}
-            *Sistema*: {{ ansible_distribution }} {{ ansible_distribution_version }}
-            
-            {% if grupo_check is failed %}
-            ❌ El grupo {{ grupo_objetivo }} no existe en el sistema
-            {% elif usuarios_por_expiar.results | map(attribute='stdout') | select('match','.+') | list %}
-            *Usuarios por expirar (menos de {{ dias_alerta }} días)*:
-            {% for result in usuarios_por_expiar.results %}
-              {% if result.stdout %}
-              - {{ result.stdout }}
-              {% endif %}
-            {% endfor %}
-            {% else %}
-            ✅ No hay usuarios del grupo {{ grupo_objetivo }} con contraseña por expirar
-            {% endif %}
-            
-            *Detalles*:
-            - Usuario ejecutor: kopet
-            - Fecha de verificación: {{ ansible_date_time.date }}
-          parse_mode: "markdown"
+        - name: Obtener usuarios inactivos
+          shell: |
+            inactive_threshold=$(date -d "{{ dias_inactividad }} days ago" +%s)
+            for user in $(cut -d: -f1 /etc/passwd); do
+              last_login=$(sudo lastlog -u "$user" | tail -1 | awk '{print $5,$6,$7,$8}')
+              if [[ "$last_login" == *"Never logged in"* ]]; then
+                echo "$user:NUNCA HA INICIADO SESIÓN"
+              elif [[ "$last_login" != "" ]]; then
+                last_login_epoch=$(date -d "$last_login" +%s 2>/dev/null)
+                if [ -n "$last_login_epoch" ] && [ $last_login_epoch -lt $inactive_threshold ]; then
+                  echo "$user:INACTIVO DESDE $last_login"
+                fi
+              fi
+            done
+          args:
+            executable: /bin/bash
+          register: usuarios_inactivos
+          changed_when: false
+
+      rescue:
+        - name: Registrar error en la recolección de datos
+          debug:
+            msg: "Error al verificar usuarios vencidos/inactivos"
+          register: error_recoleccion
+
+    - name: Enviar reporte por correo electrónico
+      community.general.mail:
+        host: "{{ smtp_host }}"
+        port: "{{ smtp_port }}"
+        username: "{{ smtp_username }}"
+        password: "{{ smtp_password }}"
+        to: "{{ email_to }}"
+        subject: "Reporte de Seguridad - {{ ansible_hostname }}"
+        body: |
+          Reporte de seguridad - {{ ansible_date_time.date }}
+          Host: {{ ansible_hostname }}
+          Sistema: {{ ansible_distribution }} {{ ansible_distribution_version }}
+          
+          === USUARIOS CON CONTRASEÑA VENCIDA ===
+          {% if usuarios_vencidos.stdout_lines %}
+          {% for usuario in usuarios_vencidos.stdout_lines %}
+          - {{ usuario }}
+          {% endfor %}
+          {% else %}
+          No se encontraron usuarios con contraseña vencida
+          {% endif %}
+          
+          === USUARIOS INACTIVOS (más de {{ dias_inactividad }} días) ===
+          {% if usuarios_inactivos.stdout_lines %}
+          {% for usuario in usuarios_inactivos.stdout_lines %}
+          - {{ usuario }}
+          {% endfor %}
+          {% else %}
+          No se encontraron usuarios inactivos
+          {% endif %}
+          
+          === INFORMACIÓN ADICIONAL ===
+          Usuario ejecutor: {{ remote_user }}
+          Fecha de verificación: {{ ansible_date_time.date }}
+        subtype: html
+        secure: starttls
       delegate_to: localhost
       run_once: true
+      when: error_recoleccion is not defined
