@@ -1,6 +1,6 @@
 ---
 - name: Clone VMs from Template HCIMOVPER
-  hosts: localhost
+  hosts: all
   gather_facts: false
   vars:
     vcenter_host: "pesudvsisvc02.ktinkiy.local"
