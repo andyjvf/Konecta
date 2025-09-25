@@ -1,0 +1,138 @@
+---
+name: Clone VMs from Template HCIMOVPER
+description: Clonar múltiples VMs desde template TempDeb12Hard en vCenter
+
+vars:
+  vcenter_host: "pesudvsisvc02.ktinkiy.local"
+  template_name: "TempDeb12Hard"
+  policy_name: "Windows11-HighPerformance-RAID0"
+  vm_name_prefix: "HCIMOVPER"
+  
+  # VARIABLES CONFIGURABLES - Puedes cambiar estos valores en AWX
+  starting_number: 101
+  vm_count: 3
+  
+  # Configuración fija
+  datacenter: "VxRail-Datacenter"
+  cluster: "VxRail-Virtual-SAN"
+  datastore: "VxRail-Virtual-SAN-Datastore-10304fd9-470e-40e9-8bca-a81d66b0843e"
+  network: "Movistar Peru 122"
+
+tasks:
+  - name: Generar lista de VMs a crear
+    set_fact:
+      vms: "{{ [] }}"
+  
+  - name: Construir lista de nombres de VMs
+    set_fact:
+      vms: "{{ vms + [{'name': vm_name_prefix ~ '-' ~ (starting_number + item | int), 'num': (starting_number + item | int)}] }}"
+    loop: "{{ range(0, vm_count | int) | list }}"
+    loop_control:
+      label: "Generando VM {{ starting_number + item }}"
+
+  - name: Mostrar configuración de VMs a crear
+    debug:
+      msg: 
+        - "Prefijo: {{ vm_name_prefix }}"
+        - "Número inicial: {{ starting_number }}"
+        - "Cantidad de VMs: {{ vm_count }}"
+        - "VMs a crear: {{ vms | map(attribute='name') | list }}"
+
+  - name: Validar conexión a vCenter
+    vmware_guest_info:
+      hostname: "{{ vcenter_host }}"
+      username: "{{ vcenter_username }}"
+      password: "{{ vcenter_password }}"
+      validate_certs: no
+      datacenter: "{{ datacenter }}"
+    delegate_to: localhost
+    register: vcenter_info
+    failed_when: vcenter_info is failed
+
+  - name: Verificar template existe
+    vmware_guest_info:
+      hostname: "{{ vcenter_host }}"
+      username: "{{ vcenter_username }}"
+      password: "{{ vcenter_password }}"
+      validate_certs: no
+      datacenter: "{{ datacenter }}"
+      name: "{{ template_name }}"
+    delegate_to: localhost
+    register: template_info
+    failed_when: template_info is failed
+
+  - name: Clonar VMs desde template
+    vmware_guest:
+      hostname: "{{ vcenter_host }}"
+      username: "{{ vcenter_username }}"
+      password: "{{ vcenter_password }}"
+      validate_certs: no
+      datacenter: "{{ datacenter }}"
+      name: "{{ item.name }}"
+      template: "{{ template_name }}"
+      cluster: "{{ cluster }}"
+      datastore: "{{ datastore }}"
+      hardware:
+        memory_mb: "{{ template_info.instance.hw_memory_mb }}"
+        num_cpus: "{{ template_info.instance.hw_cores_per_socket * template_info.instance.hw_cpu_sockets }}"
+      networks:
+        - name: "{{ network }}"
+          device_type: "vmxnet3"
+      customization:
+        hostname: "{{ item.name }}"
+        domain: "ktinkiy.local"
+      state: poweredon
+    loop: "{{ vms }}"
+    loop_control:
+      label: "{{ item.name }}"
+    delegate_to: localhost
+    register: vm_creation_results
+
+  - name: Aplicar storage policy a las VMs
+    vmware_vm_storage_policy:
+      hostname: "{{ vcenter_host }}"
+      username: "{{ vcenter_username }}"
+      password: "{{ vcenter_password }}"
+      validate_certs: no
+      datacenter: "{{ datacenter }}"
+      cluster: "{{ cluster }}"
+      vm_name: "{{ item.item.name }}"
+      storage_policy_name: "{{ policy_name }}"
+    loop: "{{ vm_creation_results.results }}"
+    when: item.changed
+    loop_control:
+      label: "{{ item.item.name }}"
+    delegate_to: localhost
+
+  - name: Verificar VMs creadas correctamente
+    vmware_guest_info:
+      hostname: "{{ vcenter_host }}"
+      username: "{{ vcenter_username }}"
+      password: "{{ vcenter_password }}"
+      validate_certs: no
+      datacenter: "{{ datacenter }}"
+      name: "{{ item.name }}"
+    loop: "{{ vms }}"
+    loop_control:
+      label: "{{ item.name }}"
+    delegate_to: localhost
+    register: vm_verification
+
+  - name: Mostrar resumen final
+    debug:
+      msg: |
+        ✅ VMs CREADAS EXITOSAMENTE:
+        {% for vm in vms %}
+        - {{ vm.name }} (Número: {{ vm.num }})
+        {% endfor %}
+        
+        📊 RESUMEN EJECUCIÓN:
+        - Total solicitado: {{ vm_count }} VMs
+        - Rango: {{ starting_number }} al {{ (starting_number | int + vm_count | int - 1) }}
+        - Prefijo: {{ vm_name_prefix }}
+        
+        🔧 CONFIGURACIÓN:
+        - vCenter: {{ vcenter_host }}
+        - Template: {{ template_name }}
+        - Policy: {{ policy_name }}
+        - Network: {{ network }}
