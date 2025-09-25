@@ -1,5 +1,5 @@
 ---
-- name: Crear VMs Proxmox desde Template
+- name: Crear VMs Proxmox usando comandos shell
   hosts: localhost
   gather_facts: false
   vars:
@@ -9,41 +9,22 @@
     vm_ids: "{{ range(301, 302) | list }}"
 
   tasks:
-    - name: Mostrar información del despliegue
-      debug:
-        msg: |
-          INICIANDO CREACIÓN DE VMs
-          ============================
-          Total VMs: {{ vm_ids | length }}
-          Template ID: {{ template_id }}
-          Storage: {{ storage }}
-          Base Name: {{ base_name }}
-
-    - name: Crear VMs (ejecución paralela)
-      community.general.proxmox_kvm:
-        api_host: "{{ proxmox_host }}"
-        api_user: "{{ proxmox_user }}"
-        api_password: "{{ proxmox_password }}"
-        validate_certs: false
-        node: "{{ proxmox_node }}"
-        vmid: "{{ item }}"
-        name: "{{ base_name }}{{ item }}"
-        template: "{{ template_id }}"
-        storage: "{{ storage }}"
-        fullclone: true
-        state: present
+    - name: Crear VM {{ item }} usando comando qm
+      ansible.builtin.shell: |
+        qm clone {{ template_id }} {{ item }} \
+          --name {{ base_name }}{{ item }} \
+          --storage {{ storage }} \
+          --full true
+      args:
+        executable: /bin/bash
       loop: "{{ vm_ids }}"
+      register: clone_result
       async: 1800
       poll: 10
-      register: vm_creation
-      changed_when: vm_creation.results[ansible_loop.index0].changed
-      failed_when: vm_creation.results[ansible_loop.index0].failed
 
-    - name: Mostrar resumen final
+    - name: Mostrar resultado
       debug:
-        msg: |
-          PROCESO COMPLETADO
-          =====================
-          VMs procesadas: {{ vm_ids | length }}
-          VMs creadas: {{ (vm_creation.results | selectattr('changed') | list | length) }}
-          VMs que ya existían: {{ (vm_creation.results | rejectattr('changed') | list | length) }}
+        var: clone_result.results[ansible_loop.index0].stdout
+      loop: "{{ vm_ids }}"
+      loop_control:
+        index_var: ansible_loop.index0
