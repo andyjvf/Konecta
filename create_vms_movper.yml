@@ -1,6 +1,6 @@
 ---
-- name: Clone VMs from Template HCIMOVPER
-- description: Clonar múltiples VMs desde template TempDeb12Hard en vCenter 
+name: Clone VMs from Template HCIMOVPER
+description: Clonar múltiples VMs desde template TempDeb12Hard en vCenter
 
 vars:
   vcenter_host: "pesudvsisvc02.ktinkiy.local"
@@ -25,18 +25,14 @@ tasks:
   
   - name: Construir lista de nombres de VMs
     set_fact:
-      vms: "{{ vms + [{'name': vm_name_prefix ~ '-' ~ (starting_number + item | int), 'num': (starting_number + item | int)}] }}"
+      vms: "{{ vms + [{'name': vm_name_prefix ~ '-' ~ (starting_number | int + item | int | string), 'num': (starting_number | int + item | int)}] }}"
     loop: "{{ range(0, vm_count | int) | list }}"
     loop_control:
-      label: "Generando VM {{ starting_number + item }}"
+      label: "Generando VM {{ starting_number | int + item | int }}"
 
   - name: Mostrar configuración de VMs a crear
     debug:
-      msg: 
-        - "Prefijo: {{ vm_name_prefix }}"
-        - "Número inicial: {{ starting_number }}"
-        - "Cantidad de VMs: {{ vm_count }}"
-        - "VMs a crear: {{ vms | map(attribute='name') | list }}"
+      msg: "VMs a crear: {{ vms | map(attribute='name') | list }}"
 
   - name: Validar conexión a vCenter
     vmware_guest_info:
@@ -47,7 +43,6 @@ tasks:
       datacenter: "{{ datacenter }}"
     delegate_to: localhost
     register: vcenter_info
-    failed_when: vcenter_info is failed
 
   - name: Verificar template existe
     vmware_guest_info:
@@ -59,7 +54,6 @@ tasks:
       name: "{{ template_name }}"
     delegate_to: localhost
     register: template_info
-    failed_when: template_info is failed
 
   - name: Clonar VMs desde template
     vmware_guest:
