@@ -1,0 +1,60 @@
+---
+- name: Crear VMs Proxmox desde Template
+  hosts: all
+  gather_facts: false
+  vars:
+    template_id: 101
+    storage: "pesudfsis155"
+    base_name: "PRXMOVARG"
+    start_id: 302
+    total_vms: 2
+    vm_ids: "{{ range(start_id, start_id + total_vms) | list }}"
+
+  tasks:
+    - name: Verificar que el comando qm existe
+      command: which qm
+      register: qm_check
+      changed_when: false
+
+    - name: Mostrar informacion del despliegue
+      debug:
+        msg: |
+          INICIANDO CREACION DE VMs
+          ==========================
+          Servidor Proxmox: {{ inventory_hostname }}
+          Comando qm: {{ qm_check.stdout }}
+          Total VMs: {{ total_vms }}
+          Rango: {{ start_id }} al {{ start_id + total_vms - 1 }}
+          IDs: {{ vm_ids }}
+          Template ID: {{ template_id }}
+          Storage: {{ storage }}
+          Base Name: {{ base_name }}
+
+    - name: Crear VMs usando comando qm
+      shell: |
+        echo "Creando VM {{ item }}..."
+        qm clone {{ template_id }} {{ item }} \
+          --name {{ base_name }}{{ item }} \
+          --storage {{ storage }} \
+          --full true
+      args:
+        executable: /bin/bash
+      loop: "{{ vm_ids }}"
+      async: 1800
+      poll: 10
+      register: vm_creation
+
+    - name: Mostrar resumen final
+      debug:
+        msg: |
+          PROCESO COMPLETADO
+          ==================
+          Total VMs configuradas: {{ total_vms }}
+          VMs procesadas: {{ vm_creation.results | length }}
+          VMs creadas exitosamente: {{ vm_creation.results | selectattr('rc', 'equalto', 0) | list | length }}
+          VMs con error: {{ vm_creation.results | selectattr('rc', 'ne', 0) | list | length }}
+          
+          Detalle por VM:
+          {% for result in vm_creation.results %}
+          - VM {{ result.item }}: {{ '✓ CREADA' if result.rc == 0 else '✗ ERROR: ' + result.stderr }}
+          {% endfor %}
