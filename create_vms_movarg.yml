@@ -1,5 +1,5 @@
-----
-- name: 🚀 Crear VMs Proxmox desde Template
+---
+- name: Crear VMs Proxmox desde Template
   hosts: localhost
   gather_facts: false
   vars:
@@ -9,17 +9,17 @@
     vm_ids: "{{ range(301, 302) | list }}"
 
   tasks:
-    - name: 📊 Mostrar información del despliegue
+    - name: Mostrar información del despliegue
       debug:
         msg: |
-          🎯 INICIANDO CREACIÓN DE VMs
+          INICIANDO CREACIÓN DE VMs
           ============================
           Total VMs: {{ vm_ids | length }}
           Template ID: {{ template_id }}
           Storage: {{ storage }}
           Base Name: {{ base_name }}
 
-    - name: 🔄 Crear VMs (ejecución paralela)
+    - name: Crear VMs (ejecución paralela)
       community.general.proxmox_kvm:
         api_host: "{{ proxmox_host }}"
         api_user: "{{ proxmox_user }}"
@@ -39,10 +39,10 @@
       changed_when: vm_creation.results[ansible_loop.index0].changed
       failed_when: vm_creation.results[ansible_loop.index0].failed
 
-    - name: 📈 Mostrar resumen final
+    - name: Mostrar resumen final
       debug:
         msg: |
-          ✅ PROCESO COMPLETADO
+          PROCESO COMPLETADO
           =====================
           VMs procesadas: {{ vm_ids | length }}
           VMs creadas: {{ (vm_creation.results | selectattr('changed') | list | length) }}
