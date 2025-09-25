@@ -1,6 +1,6 @@
 ---
 name: Clone VMs from Template HCIMOVPER
-description: Clonar múltiples VMs desde template TempDeb12Hard en vCenter
+description: Clonar múltiples VMs desde template TempDeb12Hard en vCenter 
 
 vars:
   vcenter_host: "pesudvsisvc02.ktinkiy.local"
