@@ -1,0 +1,49 @@
+---
+- name: 🚀 Crear VMs Proxmox desde Template
+  hosts: localhost
+  gather_facts: false
+  vars:
+    template_id: 106
+    storage: "pesudfsis151"
+    base_name: "PRXMOVARG"
+    vm_ids: "{{ range(301, 302) | list }}"
+
+  tasks:
+    - name: 📊 Mostrar información del despliegue
+      debug:
+        msg: |
+          🎯 INICIANDO CREACIÓN DE VMs
+          ============================
+          Total VMs: {{ vm_ids | length }}
+          Template ID: {{ template_id }}
+          Storage: {{ storage }}
+          Base Name: {{ base_name }}
+
+    - name: 🔄 Crear VMs (ejecución paralela)
+      community.general.proxmox_kvm:
+        api_host: "{{ proxmox_host }}"
+        api_user: "{{ proxmox_user }}"
+        api_password: "{{ proxmox_password }}"
+        validate_certs: false
+        node: "{{ proxmox_node }}"
+        vmid: "{{ item }}"
+        name: "{{ base_name }}{{ item }}"
+        template: "{{ template_id }}"
+        storage: "{{ storage }}"
+        fullclone: true
+        state: present
+      loop: "{{ vm_ids }}"
+      async: 1800
+      poll: 10
+      register: vm_creation
+      changed_when: vm_creation.results[ansible_loop.index0].changed
+      failed_when: vm_creation.results[ansible_loop.index0].failed
+
+    - name: 📈 Mostrar resumen final
+      debug:
+        msg: |
+          ✅ PROCESO COMPLETADO
+          =====================
+          VMs procesadas: {{ vm_ids | length }}
+          VMs creadas: {{ (vm_creation.results | selectattr('changed') | list | length) }}
+          VMs que ya existían: {{ (vm_creation.results | rejectattr('changed') | list | length) }}
