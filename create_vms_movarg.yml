@@ -1,6 +1,6 @@
 ---
-- name: Crear VMs Proxmox usando comandos shell
-  hosts: localhost
+- name: Crear VMs Proxmox desde Template
+  hosts: PROMOX
   gather_facts: false
   vars:
     template_id: 101
@@ -9,8 +9,25 @@
     vm_ids: "{{ range(301, 302) | list }}"
 
   tasks:
-    - name: Crear VM {{ item }} usando comando qm
-      ansible.builtin.shell: |
+    - name: Verificar que el comando qm existe
+      command: which qm
+      register: qm_check
+      changed_when: false
+
+    - name: Mostrar informacion del despliegue
+      debug:
+        msg: |
+          INICIANDO CREACION DE VMs
+          ==========================
+          Servidor Proxmox: {{ inventory_hostname }}
+          Comando qm: {{ qm_check.stdout }}
+          Total VMs: {{ vm_ids | length }}
+          Template ID: {{ template_id }}
+          Storage: {{ storage }}
+          Base Name: {{ base_name }}
+
+    - name: Crear VMs usando comando qm
+      shell: |
         qm clone {{ template_id }} {{ item }} \
           --name {{ base_name }}{{ item }} \
           --storage {{ storage }} \
@@ -18,13 +35,17 @@
       args:
         executable: /bin/bash
       loop: "{{ vm_ids }}"
-      register: clone_result
       async: 1800
       poll: 10
+      register: vm_creation
 
-    - name: Mostrar resultado
+    - name: Mostrar resumen final
       debug:
-        var: clone_result.results[ansible_loop.index0].stdout
-      loop: "{{ vm_ids }}"
-      loop_control:
-        index_var: ansible_loop.index0
+        msg: |
+          PROCESO COMPLETADO
+          ==================
+          VMs procesadas: {{ vm_ids | length }}
+          Resultados por VM:
+          {% for result in vm_creation.results %}
+          VM {{ result.item }}: {{ 'CREADA' if result.rc == 0 else 'ERROR - ' + result.stderr }}
+          {% endfor %}
