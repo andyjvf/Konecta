@@ -1,6 +1,6 @@
 ---
 - name: Crear VMs Proxmox desde Template
-  hosts: PROMOX
+  hosts: pesudfsis155.ktinkiy.local
   gather_facts: false
   vars:
     template_id: 101
