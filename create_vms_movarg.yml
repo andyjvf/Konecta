@@ -6,7 +6,9 @@
     template_id: 101
     storage: "pesudfsis155"
     base_name: "PRXMOVARG"
-    vm_ids: "{{ range(301, 302) | list }}"
+    start_id: 302
+    total_vms: 2
+    vm_ids: "{{ range(start_id, start_id + total_vms) | list }}"
 
   tasks:
     - name: Verificar que el comando qm existe
@@ -21,13 +23,16 @@
           ==========================
           Servidor Proxmox: {{ inventory_hostname }}
           Comando qm: {{ qm_check.stdout }}
-          Total VMs: {{ vm_ids | length }}
+          Total VMs: {{ total_vms }}
+          Rango: {{ start_id }} al {{ start_id + total_vms - 1 }}
+          IDs: {{ vm_ids }}
           Template ID: {{ template_id }}
           Storage: {{ storage }}
           Base Name: {{ base_name }}
 
     - name: Crear VMs usando comando qm
       shell: |
+        echo "Creando VM {{ item }}..."
         qm clone {{ template_id }} {{ item }} \
           --name {{ base_name }}{{ item }} \
           --storage {{ storage }} \
@@ -44,8 +49,12 @@
         msg: |
           PROCESO COMPLETADO
           ==================
-          VMs procesadas: {{ vm_ids | length }}
-          Resultados por VM:
+          Total VMs configuradas: {{ total_vms }}
+          VMs procesadas: {{ vm_creation.results | length }}
+          VMs creadas exitosamente: {{ vm_creation.results | selectattr('rc', 'equalto', 0) | list | length }}
+          VMs con error: {{ vm_creation.results | selectattr('rc', 'ne', 0) | list | length }}
+          
+          Detalle por VM:
           {% for result in vm_creation.results %}
-          VM {{ result.item }}: {{ 'CREADA' if result.rc == 0 else 'ERROR - ' + result.stderr }}
+          - VM {{ result.item }}: {{ '✓ CREADA' if result.rc == 0 else '✗ ERROR: ' + result.stderr }}
           {% endfor %}
