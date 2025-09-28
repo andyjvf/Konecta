@@ -1,0 +1,57 @@
+---
+- name: Clonar múltiples VMs desde un template en vCenter sin encenderlas
+  hosts: localhost
+  connection: local
+  gather_facts: no
+
+  collections:
+    - community.vmware
+
+  vars:
+    vcenter_hostname: "10.200.154.213"
+    vcenter_username: "administrator@vsphere.local"
+    vcenter_password: "K%0n$3c.t!@"
+    validate_certs: false
+
+    template_name: "TMPMOVPERU"
+    datastore_name: "VxRail-Virtual-SAN-Datastore-10304fd9-470e-40e9-8bca-a81d66b0843e"
+    folder_name: "VMware HCIA Folder"
+    base_vm_name: "HCIMOVPER"
+    starting_number: 102
+    num_vms: 50
+    cluster_name: "VxRail-Virtual-SAN"
+    datacenter_name: "VxRail-Datacenter"
+
+  tasks:
+    - name: Clonar VMs desde template (apagadas)
+      community.vmware.vmware_guest:
+        hostname: "{{ vcenter_hostname }}"
+        username: "{{ vcenter_username }}"
+        password: "{{ vcenter_password }}"
+        validate_certs: "{{ validate_certs }}"
+        datacenter: "{{ datacenter_name }}"
+        cluster: "{{ cluster_name }}"
+        folder: "{{ folder_name }}"
+        name: "{{ base_vm_name }}{{ item }}"
+        template: "{{ template_name }}"
+        datastore: "{{ datastore_name }}"
+        state: present        # <-- estado present = crea VM apagada
+        hardware:
+          num_cpus: 2         # opcional: modificar vCPU
+          memory_mb: 4096     # opcional: modificar RAM
+        customization:
+          hostname: "{{ base_vm_name }}{{ item }}"   # hostname dentro del SO invitado
+          # Para IP estática descomentar y adaptar:
+          # nic_settings:
+          #   - ip: "10.200.154.{{ 100 + item }}"     # IP estática distinta por VM
+          #     subnet_mask: "255.255.255.0"
+          #     gateway: "10.200.154.1"
+          #     dns_servers:
+          #       - "8.8.8.8"
+          #       - "8.8.4.4"
+      loop: "{{ range(starting_number, starting_number + num_vms) | list }}"
+      register: clonaciones
+
+    - name: Mostrar resultados
+      debug:
+        var: clonaciones.results
