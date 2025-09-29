@@ -1,29 +1,56 @@
 ---
-- name: Clonar múltiples VMs desde un template en vCenter sin encenderlas
-  hosts: localhost
+- name: Clonar múltiples VMs desde template en vCenter sin encenderlas
+  hosts: all
   connection: local
   gather_facts: no
-
   collections:
     - community.vmware
-
+    
   vars:
-    vcenter_hostname: "10.200.154.213"
-    vcenter_username: "administrator@vsphere.local"
-    vcenter_password: "K%0n$3c.t!@"
-    validate_certs: false
-
+    # Datos específicos de tu entorno
     template_name: "TMPMOVPERU"
     datastore_name: "VxRail-Virtual-SAN-Datastore-10304fd9-470e-40e9-8bca-a81d66b0843e"
     folder_name: "VMware HCIA Folder"
     base_vm_name: "HCIMOVPER"
     starting_number: 102
-    num_vms: 50
+    num_vms: 1
     cluster_name: "VxRail-Virtual-SAN"
     datacenter_name: "VxRail-Datacenter"
+    validate_certs: false
+    
+    # Las credenciales vCenter deben definirse en AWX:
+    # vcenter_hostname: (desde inventory o credentials)
+    # vcenter_username: (desde credentials)
+    # vcenter_password: (desde credentials)
 
   tasks:
-    - name: Clonar VMs desde template (apagadas)
+    - name: Verificar conectividad con vCenter
+      community.vmware.vmware_about_info:
+        hostname: "{{ vcenter_hostname }}"
+        username: "{{ vcenter_username }}"
+        password: "{{ vcenter_password }}"
+        validate_certs: "{{ validate_certs }}"
+      register: vcenter_info
+
+    - name: Mostrar información de vCenter
+      debug:
+        msg: "Conectado a vCenter: {{ vcenter_info.about_info.fullName }}"
+
+    - name: Verificar que el template TMPMOVPERU existe
+      community.vmware.vmware_guest_info:
+        hostname: "{{ vcenter_hostname }}"
+        username: "{{ vcenter_username }}"
+        password: "{{ vcenter_password }}"
+        validate_certs: "{{ validate_certs }}"
+        datacenter: "{{ datacenter_name }}"
+        name: "{{ template_name }}"
+      register: template_check
+
+    - name: Confirmar template encontrado
+      debug:
+        msg: "Template {{ template_name }} encontrado y listo para clonación"
+
+    - name: Clonar VMs HCIMOVPER desde template TMPMOVPERU
       community.vmware.vmware_guest:
         hostname: "{{ vcenter_hostname }}"
         username: "{{ vcenter_username }}"
@@ -35,23 +62,54 @@
         name: "{{ base_vm_name }}{{ item }}"
         template: "{{ template_name }}"
         datastore: "{{ datastore_name }}"
-        state: present        # <-- estado present = crea VM apagada
-        hardware:
-          num_cpus: 2         # opcional: modificar vCPU
-          memory_mb: 4096     # opcional: modificar RAM
-        customization:
-          hostname: "{{ base_vm_name }}{{ item }}"   # hostname dentro del SO invitado
-          # Para IP estática descomentar y adaptar:
-          # nic_settings:
-          #   - ip: "10.200.154.{{ 100 + item }}"     # IP estática distinta por VM
-          #     subnet_mask: "255.255.255.0"
-          #     gateway: "10.200.154.1"
-          #     dns_servers:
-          #       - "8.8.8.8"
-          #       - "8.8.4.4"
+        state: present
+        wait_for_ip_address: false
+        # NO especificar hardware - respeta la configuración del template
+        # NO especificar networks - usa las redes del template
+        # SIN customization - cambiarás hostname manualmente después
       loop: "{{ range(starting_number, starting_number + num_vms) | list }}"
-      register: clonaciones
+      register: vm_creation
+      async: 300  # Timeout de 5 minutos por VM
+      poll: 0     # No esperar, ejecutar en paralelo
 
-    - name: Mostrar resultados
+    - name: Esperar que todas las clonaciones terminen
+      async_status:
+        jid: "{{ item.ansible_job_id }}"
+      register: cloning_jobs
+      until: cloning_jobs.finished
+      retries: 60
+      delay: 10
+      loop: "{{ vm_creation.results }}"
+
+    - name: Mostrar VMs creadas exitosamente
       debug:
-        var: clonaciones.results
+        msg: "✅ VM {{ item.item }} creada exitosamente"
+      loop: "{{ cloning_jobs.results }}"
+      when: 
+        - not (item.failed | default(false))
+        - item.changed | default(false)
+
+    - name: Mostrar errores en creación de VMs
+      debug:
+        msg: "❌ Error creando VM {{ item.item }}: {{ item.msg | default('Error desconocido') }}"
+      loop: "{{ cloning_jobs.results }}"
+      when: item.failed | default(false)
+
+    - name: Resumen final del proceso
+      debug:
+        msg: |
+          🔄 RESUMEN DE CLONACIÓN:
+          📋 Template utilizado: {{ template_name }}
+          🏢 Datacenter: {{ datacenter_name }}
+          🗂️  Folder: {{ folder_name }}
+          💾 Datastore: VxRail-Virtual-SAN-Datastore
+          🖥️  Nombre base: {{ base_vm_name }}
+          🔢 Rango: {{ starting_number }} - {{ starting_number + num_vms - 1 }}
+          📊 Total solicitadas: {{ num_vms }} VMs
+          ✅ Creadas exitosamente: {{ cloning_jobs.results | selectattr('changed', 'defined') | selectattr('changed') | list | length }}
+          ❌ Con errores: {{ cloning_jobs.results | selectattr('failed', 'defined') | selectattr('failed') | list | length }}
+
+    - name: Listar todas las VMs que deben existir
+      debug:
+        msg: "VM esperada: {{ base_vm_name }}{{ item }} en estado apagado"
+      loop: "{{ range(starting_number, starting_number + num_vms) | list }}"
