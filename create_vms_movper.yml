@@ -5,7 +5,6 @@
   vars:
     vcenter_host: "pesudvsisvc02.ktinkiy.local"
     template_name: "TempDeb12Hard"
-    policy_name: "Windows11-HighPerformance-RAID0"   # ya no se usa
     vm_name_prefix: "HCIMOVPER"
     starting_number: 101
     vm_count: 1
@@ -17,11 +16,11 @@
   tasks:
     - name: Generate list of VMs to create
       set_fact:
-        vms: "{{ [] }}"
+        vms: []
 
     - name: Build VM names list
       set_fact:
-        vms: "{{ vms + [vm_name_prefix + '-' + (starting_number + item | string)] }}"
+        vms: "{{ vms + [vm_name_prefix ~ '-' ~ (starting_number + (item | int)) | string] }}"
       loop: "{{ range(0, vm_count) | list }}"
 
     - name: Show VMs to be created
