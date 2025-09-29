@@ -5,7 +5,7 @@
   vars:
     vcenter_host: "pesudvsisvc02.ktinkiy.local"
     template_name: "TempDeb12Hard"
-    policy_name: "Windows11-HighPerformance-RAID0"
+    policy_name: "Windows11-HighPerformance-RAID0"   # ya no se usa
     vm_name_prefix: "HCIMOVPER"
     starting_number: 101
     vm_count: 1
@@ -69,20 +69,6 @@
       delegate_to: localhost
       register: vm_creation_results
 
-    - name: Apply storage policy to VMs
-      vmware_vm_storage_policy:
-        hostname: "{{ vcenter_host }}"
-        username: "{{ vcenter_username }}"
-        password: "{{ vcenter_password }}"
-        validate_certs: false
-        datacenter: "{{ datacenter }}"
-        cluster: "{{ cluster }}"
-        vm_name: "{{ item.item }}"
-        storage_policy_name: "{{ policy_name }}"
-      loop: "{{ vm_creation_results.results }}"
-      when: item.changed
-      delegate_to: localhost
-
     - name: Verify VMs were created successfully
       vmware_guest_info:
         hostname: "{{ vcenter_host }}"
@@ -106,7 +92,6 @@
           Configuration used:
           - vCenter: {{ vcenter_host }}
           - Template: {{ template_name }}
-          - Policy: {{ policy_name }}
           - Network: {{ network }}
           - Starting number: {{ starting_number }}
           - VM count: {{ vm_count }}
