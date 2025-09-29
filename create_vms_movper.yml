@@ -30,8 +30,8 @@
     - name: Validate vCenter connection
       vmware_guest_info:
         hostname: "{{ vcenter_host }}"
-        username: "{{ ansible_user }}"         # AWX rellena desde credencial VMware vCenter
-        password: "{{ ansible_password }}"     # AWX rellena desde credencial VMware vCenter
+        username: "{{ vcenter_username }}"
+        password: "{{ vcenter_password }}"
         validate_certs: false
         datacenter: "{{ datacenter }}"
       register: vcenter_info
