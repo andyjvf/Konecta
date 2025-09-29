@@ -1,6 +1,6 @@
 ---
 - name: Clonar múltiples VMs desde template en vCenter sin encenderlas
-  hosts: localhost
+  hosts: all
   connection: local
   gather_facts: no
   collections:
