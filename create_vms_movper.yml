@@ -3,24 +3,24 @@
   hosts: all
   gather_facts: false
   vars:
-    vcenter_host: "pesudvsisvc02.ktinkiy.local"
-    template_name: "TMPMOVPERU"
-    vm_name_prefix: "HCIMOVPER"
-    starting_number: 101
-    vm_count: 1
-    datacenter: "VxRail-Datacenter"
-    cluster: "VxRail-Virtual-SAN"
+    vcenter_host: "pesudvsisvc02.ktinkiy.local"          # Host o IP de tu vCenter
+    template_name: "TMPMOVPERU"                      # Nombre del template en vCenter
+    vm_name_prefix: "HCIMOVPER"                         # Prefijo de las VMs nuevas
+    starting_number: 101                                # Número inicial
+    vm_count: 1                                         # Cantidad de VMs a crear
+    datacenter: "VxRail-Datacenter"                     # Datacenter
+    cluster: "VxRail-Virtual-SAN"                       # Cluster
     datastore: "VxRail-Virtual-SAN-Datastore-10304fd9-470e-40e9-8bca-a81d66b0843e"
-    network: "Movistar Peru 122"
+    network: "Movistar Peru 122"                        # Nombre de red en vCenter
 
   tasks:
-    - name: Generate list of VMs to create
+    - name: Generate empty VM list
       set_fact:
         vms: []
 
     - name: Build VM names list
       set_fact:
-        vms: "{{ vms + [vm_name_prefix ~ '-' ~ (starting_number + (item | int)) | string] }}"
+        vms: "{{ vms + [vm_name_prefix + '-' + (starting_number + item)|string] }}"
       loop: "{{ range(0, vm_count) | list }}"
 
     - name: Show VMs to be created
@@ -30,27 +30,29 @@
     - name: Validate vCenter connection
       vmware_guest_info:
         hostname: "{{ vcenter_host }}"
-        username: "{{ vcenter_username }}"
-        password: "{{ vcenter_password }}"
+        username: "{{ ansible_user }}"         # AWX rellena desde credencial VMware vCenter
+        password: "{{ ansible_password }}"     # AWX rellena desde credencial VMware vCenter
         validate_certs: false
         datacenter: "{{ datacenter }}"
       register: vcenter_info
+      delegate_to: localhost
 
     - name: Check if template exists
       vmware_guest_info:
         hostname: "{{ vcenter_host }}"
-        username: "{{ vcenter_username }}"
-        password: "{{ vcenter_password }}"
+        username: "{{ ansible_user }}"
+        password: "{{ ansible_password }}"
         validate_certs: false
         datacenter: "{{ datacenter }}"
         name: "{{ template_name }}"
       register: template_info
+      delegate_to: localhost
 
     - name: Clone VMs from template
       vmware_guest:
         hostname: "{{ vcenter_host }}"
-        username: "{{ vcenter_username }}"
-        password: "{{ vcenter_password }}"
+        username: "{{ ansible_user }}"
+        password: "{{ ansible_password }}"
         validate_certs: false
         datacenter: "{{ datacenter }}"
         name: "{{ item }}"
@@ -63,7 +65,7 @@
         customization:
           hostname: "{{ item }}"
           domain: "ktinkiy.local"
-        state: poweredon
+        state: poweredoff         # ← Para que NO se enciendan al clonarse
       loop: "{{ vms }}"
       delegate_to: localhost
       register: vm_creation_results
@@ -71,8 +73,8 @@
     - name: Verify VMs were created successfully
       vmware_guest_info:
         hostname: "{{ vcenter_host }}"
-        username: "{{ vcenter_username }}"
-        password: "{{ vcenter_password }}"
+        username: "{{ ansible_user }}"
+        password: "{{ ansible_password }}"
         validate_certs: false
         datacenter: "{{ datacenter }}"
         name: "{{ item }}"
@@ -87,7 +89,7 @@
           {% for vm in vms %}
           - {{ vm }}
           {% endfor %}
-          
+
           Configuration used:
           - vCenter: {{ vcenter_host }}
           - Template: {{ template_name }}
