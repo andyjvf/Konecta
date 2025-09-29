@@ -1,12 +1,18 @@
 ---
 - name: Clonar múltiples VMs desde template en vCenter sin encenderlas
-  hosts: all
+  hosts: localhost
   connection: local
   gather_facts: no
   collections:
     - community.vmware
     
   vars:
+    # Credenciales temporales (mueve a AWX Job Template después)
+    vcenter_hostname: "10.200.154.213"
+    vcenter_username: "administrator@vsphere.local"
+    vcenter_password: "K%0n$3c.t!@"
+    validate_certs: false
+    
     # Datos específicos de tu entorno
     template_name: "TMPMOVPERU"
     datastore_name: "VxRail-Virtual-SAN-Datastore-10304fd9-470e-40e9-8bca-a81d66b0843e"
@@ -16,10 +22,6 @@
     num_vms: 50
     cluster_name: "VxRail-Virtual-SAN"
     datacenter_name: "VxRail-Datacenter"
-    validate_certs: false
-    
-    # Variables vcenter_hostname, vcenter_username, vcenter_password 
-    # serán inyectadas automáticamente por AWX desde tu Job Template
 
   tasks:
     - name: Verificar conectividad con vCenter
