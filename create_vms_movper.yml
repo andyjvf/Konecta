@@ -4,7 +4,7 @@
   gather_facts: false
   vars:
     vcenter_host: "pesudvsisvc02.ktinkiy.local"
-    template_name: "TempDeb12Hard"
+    template_name: "TMPMOVPERU"
     vm_name_prefix: "HCIMOVPER"
     starting_number: 101
     vm_count: 1
