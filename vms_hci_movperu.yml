@@ -13,15 +13,13 @@
     folder_name: "VMware HCIA Folder"
     base_vm_name: "HCIMOVPER"
     starting_number: 102
-    num_vms: 1
+    num_vms: 50
     cluster_name: "VxRail-Virtual-SAN"
     datacenter_name: "VxRail-Datacenter"
     validate_certs: false
     
-    # Las credenciales vCenter deben definirse en AWX:
-    # vcenter_hostname: (desde inventory o credentials)
-    # vcenter_username: (desde credentials)
-    # vcenter_password: (desde credentials)
+    # Variables vcenter_hostname, vcenter_username, vcenter_password 
+    # serán inyectadas automáticamente por AWX desde tu Job Template
 
   tasks:
     - name: Verificar conectividad con vCenter
@@ -64,9 +62,8 @@
         datastore: "{{ datastore_name }}"
         state: present
         wait_for_ip_address: false
-        # NO especificar hardware - respeta la configuración del template
-        # NO especificar networks - usa las redes del template
-        # SIN customization - cambiarás hostname manualmente después
+        # Sin customization para evitar errores de red
+        # Las VMs mantendrán la configuración exacta del template
       loop: "{{ range(starting_number, starting_number + num_vms) | list }}"
       register: vm_creation
       async: 300  # Timeout de 5 minutos por VM
