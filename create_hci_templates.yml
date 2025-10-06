@@ -10,11 +10,12 @@
     vcenter_username: "{{ vcenter_user }}"
     vcenter_password: "{{ vcenter_pass }}"
     datacenter_name: "{{ datacenter }}"
-    cluster_name: "{{ cluster }}"
     template_name: "{{ template }}"
     vm_name: "{{ nueva_vm }}"
-    datastore_name: "{{ datastore }}"
-    vm_folder: "{{ folder | default('/') }}"
+    # Variables opcionales con valores por defecto
+    cluster_name: "{{ cluster | default(omit) }}"
+    datastore_name: "{{ datastore | default(omit) }}"
+    vm_folder: "{{ folder | default(omit) }}"
     
   tasks:
     - name: Crear VM desde template
@@ -24,11 +25,12 @@
         password: "{{ vcenter_password }}"
         validate_certs: false
         datacenter: "{{ datacenter_name }}"
-        cluster: "{{ cluster_name }}"
-        folder: "{{ vm_folder }}"
         name: "{{ vm_name }}"
         state: poweredon
         template: "{{ template_name }}"
+        # Solo incluye estas si se definen
+        cluster: "{{ cluster_name }}"
+        folder: "{{ vm_folder }}"
         datastore: "{{ datastore_name }}"
         wait_for_ip_address: true
       delegate_to: localhost
