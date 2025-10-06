@@ -6,13 +6,12 @@
     - community.vmware
   
   vars:
-    vcenter_hostname: "{{ vcenter_host }}"
-    vcenter_username: "{{ vcenter_user }}"
-    vcenter_password: "{{ vcenter_pass }}"
+    vcenter_hostname: "{{ vcenter_host }}"  # Solo el hostname/IP
+    vcenter_username: "{{ lookup('env', 'VMWARE_USER') }}"  # Desde credenciales
+    vcenter_password: "{{ lookup('env', 'VMWARE_PASSWORD') }}"  # Desde credenciales
     datacenter_name: "{{ datacenter }}"
     template_name: "{{ template }}"
     vm_name: "{{ nueva_vm }}"
-    # Variables opcionales con valores por defecto
     cluster_name: "{{ cluster | default(omit) }}"
     datastore_name: "{{ datastore | default(omit) }}"
     vm_folder: "{{ folder | default(omit) }}"
@@ -28,7 +27,6 @@
         name: "{{ vm_name }}"
         state: poweredon
         template: "{{ template_name }}"
-        # Solo incluye estas si se definen
         cluster: "{{ cluster_name }}"
         folder: "{{ vm_folder }}"
         datastore: "{{ datastore_name }}"
