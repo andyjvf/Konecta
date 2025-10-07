@@ -1,5 +1,5 @@
 ---
-- name: Crear VM desde template en vCenter con personalización básica
+- name: Crear VM desde template en vCenter con personalización
   hosts: all
   gather_facts: false
   collections:
@@ -16,20 +16,15 @@
     cluster_name: "{{ cluster | default(omit) }}"
     datastore_name: "{{ datastore | default(omit) }}"
     
-    # Variables para personalización
-    vm_dns_servers: "{{ dns_servers | default(['172.57.152.8', '172.57.152.6']) }}"
-    vm_domain: "{{ domain | default('KTINKIY.LOCAL') }}"
-    win_password: "{{ win_pass }}"
-    
   tasks:
-    - name: Crear VM desde template con personalización básica
+    - name: Crear VM desde template con personalización
       vmware_guest:
         hostname: "{{ vcenter_hostname }}"
         username: "{{ vcenter_username }}"
         password: "{{ vcenter_password }}"
         validate_certs: false
         datacenter: "{{ datacenter_name }}"
-        name: "{{ vm_name }}"  # ⬅️ Nombre en vCenter
+        name: "{{ vm_name }}"
         state: poweredon
         template: "{{ template_name }}"
         folder: "{{ folder }}"
@@ -37,31 +32,22 @@
         datastore: "{{ datastore_name }}"
         wait_for_ip_address: true
         
-        # Configuración de red - CON VLAN ESPECÍFICA
+        # ⬇️ AGREGAR ESTA LÍNEA PARA USAR LA ESPECIFICACIÓN
+        customization_spec: "MOVPER"
+        
+        # Configuración de red
         networks:
-          - name: "Movistar Peru 122"  # ⬅️ NOMBRE EXACTO DE LA VLAN
+          - name: "Movistar Peru 122"
             device_type: "vmxnet3"
             start_connected: true
-            type: "dhcp"  # ⬅️ Usamos DHCP inicialmente
-        
-        # Personalización
-        customization:
-          hostname: "{{ vm_name }}"  # ⬅️ NOMBRE DEL HOST WINDOWS
-          password: "{{ win_password }}"
-          dns_servers: "{{ vm_dns_servers }}"
-          domain: "{{ vm_domain }}"
-          autologon: true
-          autologoncount: 1
-          fullname: "STSO"
-          orgname: "MOVPERU"
-          timezone: 35
+            type: "dhcp"
           
       delegate_to: localhost
       register: deploy_vm
 
     - name: Esperar a que la VM esté completamente lista
       pause:
-        minutes: 3
+        minutes: 2
       when: deploy_vm.changed
 
     - name: Mostrar información de la VM creada
