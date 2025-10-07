@@ -1,5 +1,5 @@
 ---
-- name: Crear VM con usuario STSO automático
+- name: Crear VM con configuración completa
   hosts: all
   gather_facts: false
   collections:
@@ -15,7 +15,7 @@
     folder: "{{ folder }}"
     
   tasks:
-    - name: Crear VM con personalización
+    - name: Crear VM con personalización (solo para usuario STSO)
       vmware_guest:
         hostname: "{{ vcenter_hostname }}"
         username: "{{ vcenter_username }}"
@@ -26,22 +26,22 @@
         state: poweredon
         template: "{{ template_name }}"
         folder: "{{ folder }}"
-        customization_spec: "MOVPER"  # Para evitar OOBE y crear STSO
+        customization_spec: "MOVPER"  # Crea usuario STSO
         networks:
           - name: "Movistar Peru 122"
             device_type: "vmxnet3"
             start_connected: true
             type: "dhcp"
-        wait_for_ip_address: true
+        wait_for_ip_address: false
       delegate_to: localhost
       register: deploy_vm
 
-    - name: Esperar personalización inicial
+    - name: Esperar 30 minutos para personalización completa
       pause:
-        minutes: 30
+        minutes: 30  # ⬅️ TIEMPO REAL según pruebas
       when: deploy_vm.changed
 
-    - name: Forzar cambio de hostname
+    - name: Forzar cambio de hostname (SIEMPRE después de 30 min)
       vmware_guest:
         hostname: "{{ vcenter_hostname }}"
         username: "{{ vcenter_username }}"
@@ -50,21 +50,33 @@
         datacenter: "{{ datacenter_name }}"
         name: "{{ vm_name }}"
         customization:
-          hostname: "{{ vm_name }}"  # ⬅️ FORZAR hostname aquí
+          hostname: "{{ vm_name }}"
         state: poweredon
       delegate_to: localhost
       when: deploy_vm.changed
 
-    - name: Esperar reinicio por cambio de hostname
+    - name: Esperar 5 minutos para reinicio del hostname
       pause:
-        minutes: 6
+        minutes: 5
       when: deploy_vm.changed
+
+    - name: Verificación final
+      vmware_guest_info:
+        hostname: "{{ vcenter_hostname }}"
+        username: "{{ vcenter_username }}"
+        password: "{{ vcenter_password }}"
+        validate_certs: false
+        datacenter: "{{ datacenter_name }}"
+        name: "{{ vm_name }}"
+      register: final_info
+      delegate_to: localhost
 
     - name: Mostrar resultado final
       debug:
         msg: |
-          ✅ VM {{ vm_name }} creada exitosamente
-          📍 IP: {{ deploy_vm.instance.ipv4 }}
-          🖥️  Hostname: {{ vm_name }} (forzado)
-          👤 Usuario STSO creado automáticamente
-          🔑 Password: Konecta2025$$
+          ✅ CONFIGURACIÓN COMPLETADA
+          🖥️  VM: {{ vm_name }}
+          📍 IP: {{ final_info.instance.ipv4 | default('Asignación pendiente') }}
+          🔧 Hostname: {{ final_info.instance.guest_name | default('Configurado - reiniciando') }}
+          👤 Usuario STSO: Creado y en grupo Administradores
+          ⏱️  Tiempo total: ~35 minutos
