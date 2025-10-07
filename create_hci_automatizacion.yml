@@ -1,5 +1,5 @@
 ---
-- name: Crear VM y configurar hostname + usuario
+- name: Crear VM con usuario STSO automático
   hosts: all
   gather_facts: false
   collections:
@@ -15,7 +15,7 @@
     folder: "{{ folder }}"
     
   tasks:
-    - name: Crear VM con personalización básica (para evitar OOBE)
+    - name: Crear VM con personalización
       vmware_guest:
         hostname: "{{ vcenter_hostname }}"
         username: "{{ vcenter_username }}"
@@ -26,7 +26,7 @@
         state: poweredon
         template: "{{ template_name }}"
         folder: "{{ folder }}"
-        customization_spec: "MOVPER"  # ⬅️ MANTENER para evitar OOBE
+        customization_spec: "MOVPERU"  # Para evitar OOBE y crear STSO
         networks:
           - name: "Movistar Peru 122"
             device_type: "vmxnet3"
@@ -36,12 +36,12 @@
       delegate_to: localhost
       register: deploy_vm
 
-    - name: Esperar a que complete la personalización
+    - name: Esperar personalización inicial
       pause:
-        minutes: 10
+        minutes: 13
       when: deploy_vm.changed
 
-    - name: Forzar cambio de hostname (si no se aplicó)
+    - name: Forzar cambio de hostname
       vmware_guest:
         hostname: "{{ vcenter_hostname }}"
         username: "{{ vcenter_username }}"
@@ -50,40 +50,21 @@
         datacenter: "{{ datacenter_name }}"
         name: "{{ vm_name }}"
         customization:
-          hostname: "{{ vm_name }}"  # ⬅️ FORZAR hostname
+          hostname: "{{ vm_name }}"  # ⬅️ FORZAR hostname aquí
         state: poweredon
       delegate_to: localhost
       when: deploy_vm.changed
 
     - name: Esperar reinicio por cambio de hostname
       pause:
-        minutes: 5
+        minutes: 6
       when: deploy_vm.changed
 
-    - name: Crear usuario STSO via PowerShell
-      vmware_guest_exec:
-        hostname: "{{ vcenter_hostname }}"
-        username: "{{ vcenter_username }}"
-        password: "{{ vcenter_password }}"
-        validate_certs: false
-        datacenter: "{{ datacenter_name }}"
-        vm_id: "{{ vm_name }}"
-        program: "powershell.exe"
-        arguments: |
-          -Command "
-          `$securePassword = ConvertTo-SecureString 'Konecta2025$$' -AsPlainText -Force;
-          New-LocalUser -Name 'STSO' -Password `$securePassword -Description 'Usuario MOVPERU';
-          Add-LocalGroupMember -Group 'Administrators' -Member 'STSO';
-          Write-Output 'Usuario STSO creado exitosamente'
-          "
-      delegate_to: localhost
-      when: deploy_vm.changed
-
-    - name: Mostrar información final
+    - name: Mostrar resultado final
       debug:
         msg: |
-          VM {{ vm_name }} creada exitosamente
-          Sin OOBE gracias a customization_spec
-          Hostname: {{ vm_name }} (forzado si era necesario)
-          Usuario STSO creado con password Konecta2025$$
-          IP: {{ deploy_vm.instance.ipv4 }}
+          ✅ VM {{ vm_name }} creada exitosamente
+          📍 IP: {{ deploy_vm.instance.ipv4 }}
+          🖥️  Hostname: {{ vm_name }} (forzado)
+          👤 Usuario STSO creado automáticamente
+          🔑 Password: Konecta2025$$
