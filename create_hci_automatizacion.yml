@@ -16,7 +16,7 @@
     cluster_name: "{{ cluster | default(omit) }}"
     datastore_name: "{{ datastore | default(omit) }}"
     
-    # Variables para personalización (solo las soportadas)
+    # Variables para personalización
     vm_dns_servers: "{{ dns_servers | default(['172.57.152.8', '172.57.152.6']) }}"
     vm_domain: "{{ domain | default('KTINKIY.LOCAL') }}"
     win_password: "{{ win_pass }}"
@@ -37,7 +37,14 @@
         datastore: "{{ datastore_name }}"
         wait_for_ip_address: true
         
-        # SOLO PARÁMETROS SOPORTADOS
+        # Configuración de red - CON VLAN ESPECÍFICA
+        networks:
+          - name: "Movistar Peru 122"  # ⬅️ NOMBRE EXACTO DE LA VLAN
+            device_type: "vmxnet3"
+            start_connected: true
+            type: "dhcp"  # ⬅️ Usamos DHCP inicialmente
+        
+        # Personalización
         customization:
           hostname: "{{ vm_name }}"  # ⬅️ NOMBRE DEL HOST WINDOWS
           password: "{{ win_password }}"
@@ -48,7 +55,6 @@
           fullname: "STSO"
           orgname: "MOVPERU"
           timezone: 35
-          # runonce: []  # ⬅️ Comentado por si causa problemas
           
       delegate_to: localhost
       register: deploy_vm
