@@ -1,5 +1,5 @@
 ---
-- name: Crear VM desde template en vCenter con personalización
+- name: Crear VM y configurar hostname + usuario
   hosts: all
   gather_facts: false
   collections:
@@ -13,11 +13,9 @@
     template_name: "{{ template }}"
     vm_name: "{{ nueva_vm }}"
     folder: "{{ folder }}"
-    cluster_name: "{{ cluster | default(omit) }}"
-    datastore_name: "{{ datastore | default(omit) }}"
     
   tasks:
-    - name: Crear VM desde template con personalización
+    - name: Crear VM con personalización básica (para evitar OOBE)
       vmware_guest:
         hostname: "{{ vcenter_hostname }}"
         username: "{{ vcenter_username }}"
@@ -28,28 +26,64 @@
         state: poweredon
         template: "{{ template_name }}"
         folder: "{{ folder }}"
-        cluster: "{{ cluster_name }}"
-        datastore: "{{ datastore_name }}"
-        wait_for_ip_address: true
-        
-        # ⬇️ AGREGAR ESTA LÍNEA PARA USAR LA ESPECIFICACIÓN
-        customization_spec: "MOVPER"
-        
-        # Configuración de red
+        customization_spec: "MOVPER"  # ⬅️ MANTENER para evitar OOBE
         networks:
           - name: "Movistar Peru 122"
             device_type: "vmxnet3"
             start_connected: true
             type: "dhcp"
-          
+        wait_for_ip_address: true
       delegate_to: localhost
       register: deploy_vm
 
-    - name: Esperar a que la VM esté completamente lista
+    - name: Esperar a que complete la personalización
       pause:
-        minutes: 2
+        minutes: 10
       when: deploy_vm.changed
 
-    - name: Mostrar información de la VM creada
+    - name: Forzar cambio de hostname (si no se aplicó)
+      vmware_guest:
+        hostname: "{{ vcenter_hostname }}"
+        username: "{{ vcenter_username }}"
+        password: "{{ vcenter_password }}"
+        validate_certs: false
+        datacenter: "{{ datacenter_name }}"
+        name: "{{ vm_name }}"
+        customization:
+          hostname: "{{ vm_name }}"  # ⬅️ FORZAR hostname
+        state: poweredon
+      delegate_to: localhost
+      when: deploy_vm.changed
+
+    - name: Esperar reinicio por cambio de hostname
+      pause:
+        minutes: 5
+      when: deploy_vm.changed
+
+    - name: Crear usuario STSO via PowerShell
+      vmware_guest_exec:
+        hostname: "{{ vcenter_hostname }}"
+        username: "{{ vcenter_username }}"
+        password: "{{ vcenter_password }}"
+        validate_certs: false
+        datacenter: "{{ datacenter_name }}"
+        vm_id: "{{ vm_name }}"
+        program: "powershell.exe"
+        arguments: |
+          -Command "
+          `$securePassword = ConvertTo-SecureString 'Konecta2025$$' -AsPlainText -Force;
+          New-LocalUser -Name 'STSO' -Password `$securePassword -Description 'Usuario MOVPERU';
+          Add-LocalGroupMember -Group 'Administrators' -Member 'STSO';
+          Write-Output 'Usuario STSO creado exitosamente'
+          "
+      delegate_to: localhost
+      when: deploy_vm.changed
+
+    - name: Mostrar información final
       debug:
-        var: deploy_vm.instance.ipv4
+        msg: |
+          VM {{ vm_name }} creada exitosamente
+          Sin OOBE gracias a customization_spec
+          Hostname: {{ vm_name }} (forzado si era necesario)
+          Usuario STSO creado con password Konecta2025$$
+          IP: {{ deploy_vm.instance.ipv4 }}
