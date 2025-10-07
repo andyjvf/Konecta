@@ -1,9 +1,10 @@
 ---
-- name: Crear VM con configuración completa
+- name: Crear VM y configurar hostname
   hosts: all
   gather_facts: false
   collections:
     - community.vmware
+    - community.windows
   
   vars:
     vcenter_hostname: "{{ vcenter_host }}"
@@ -15,7 +16,7 @@
     folder: "{{ folder }}"
     
   tasks:
-    - name: Crear VM con personalización (solo para usuario STSO)
+    - name: Crear VM con personalización básica
       vmware_guest:
         hostname: "{{ vcenter_hostname }}"
         username: "{{ vcenter_username }}"
@@ -26,57 +27,55 @@
         state: poweredon
         template: "{{ template_name }}"
         folder: "{{ folder }}"
-        customization_spec: "MOVPER"  # Crea usuario STSO
+        customization_spec: "MOVPER"
         networks:
           - name: "Movistar Peru 122"
             device_type: "vmxnet3"
             start_connected: true
             type: "dhcp"
-        wait_for_ip_address: false
+        wait_for_ip_address: true
       delegate_to: localhost
       register: deploy_vm
 
-    - name: Esperar 30 minutos para personalización completa
+    - name: Esperar 30 minutos para personalización
       pause:
-        minutes: 30  # ⬅️ TIEMPO REAL según pruebas
+        minutes: 30
       when: deploy_vm.changed
 
-    - name: Forzar cambio de hostname (SIEMPRE después de 30 min)
-      vmware_guest:
-        hostname: "{{ vcenter_hostname }}"
-        username: "{{ vcenter_username }}"
-        password: "{{ vcenter_password }}"
-        validate_certs: false
-        datacenter: "{{ datacenter_name }}"
-        name: "{{ vm_name }}"
-        customization:
-          hostname: "{{ vm_name }}"
-        state: poweredon
-      delegate_to: localhost
-      when: deploy_vm.changed
+    - name: Cambiar hostname via PowerShell
+      community.windows.win_shell: |
+        # Verificar hostname actual
+        $currentHostname = hostname
+        Write-Output "Hostname actual: $currentHostname"
+        
+        if ($currentHostname -ne "{{ vm_name }}") {
+            Write-Output "Cambiando hostname a: {{ vm_name }}"
+            Rename-Computer -NewName "{{ vm_name }}" -Force
+            Write-Output "Reiniciando en 30 segundos..."
+            shutdown /r /t 30 /c "Reinicio por cambio de hostname"
+        } else {
+            Write-Output "Hostname ya es correcto: {{ vm_name }}"
+        }
+      delegate_to: "{{ deploy_vm.instance.ipv4 }}"
+      when: 
+        - deploy_vm.changed
+        - deploy_vm.instance.ipv4 is defined
 
-    - name: Esperar 5 minutos para reinicio del hostname
+    - name: Esperar reinicio
       pause:
-        minutes: 5
+        minutes: 2
       when: deploy_vm.changed
 
-    - name: Verificación final
-      vmware_guest_info:
-        hostname: "{{ vcenter_hostname }}"
-        username: "{{ vcenter_username }}"
-        password: "{{ vcenter_password }}"
-        validate_certs: false
-        datacenter: "{{ datacenter_name }}"
-        name: "{{ vm_name }}"
-      register: final_info
-      delegate_to: localhost
+    - name: Verificar hostname después del reinicio
+      community.windows.win_shell: hostname
+      delegate_to: "{{ deploy_vm.instance.ipv4 }}"
+      register: hostname_result
+      when: deploy_vm.changed
 
-    - name: Mostrar resultado final
+    - name: Mostrar resultado
       debug:
         msg: |
           ✅ CONFIGURACIÓN COMPLETADA
-          🖥️  VM: {{ vm_name }}
-          📍 IP: {{ final_info.instance.ipv4 | default('Asignación pendiente') }}
-          🔧 Hostname: {{ final_info.instance.guest_name | default('Configurado - reiniciando') }}
-          👤 Usuario STSO: Creado y en grupo Administradores
-          ⏱️  Tiempo total: ~35 minutos
+          🖥️  Hostname final: {{ hostname_result.stdout }}
+          👤 Usuario STSO: Creado
+          📍 IP: {{ deploy_vm.instance.ipv4 }}
