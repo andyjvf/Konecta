@@ -38,7 +38,7 @@
 
     - name: Esperar personalización inicial
       pause:
-        minutes: 13
+        minutes: 30
       when: deploy_vm.changed
 
     - name: Forzar cambio de hostname
