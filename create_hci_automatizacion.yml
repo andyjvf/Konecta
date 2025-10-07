@@ -26,7 +26,7 @@
         state: poweredon
         template: "{{ template_name }}"
         folder: "{{ folder }}"
-        customization_spec: "MOVPERU"  # Para evitar OOBE y crear STSO
+        customization_spec: "MOVPER"  # Para evitar OOBE y crear STSO
         networks:
           - name: "Movistar Peru 122"
             device_type: "vmxnet3"
