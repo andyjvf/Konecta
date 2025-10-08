@@ -1,63 +1,31 @@
----
-- name: Crear VM con hostname dinámico y usuario STSO automático
-  hosts: all
+- name: Crear VM con personalización (usar spec MOVPER)
+  hosts: localhost
   gather_facts: false
   collections:
     - community.vmware
 
   vars:
     vcenter_hostname: "{{ vcenter_host }}"
-    vcenter_username: "{{ lookup('env', 'VMWARE_USER') }}"
-    vcenter_password: "{{ lookup('env', 'VMWARE_PASSWORD') }}"
+    vcenter_username: "{{ lookup('env','VMWARE_USER') }}"
+    vcenter_password: "{{ lookup('env','VMWARE_PASSWORD') }}"
     datacenter_name: "{{ datacenter }}"
     template_name: "{{ template }}"
     vm_name: "{{ nueva_vm }}"
     folder: "{{ folder }}"
 
   tasks:
-
-    - name: Crear VM con personalización inline (sin gui_unattended)
-      vmware_guest:
+    - name: Crear VM desde plantilla usando spec MOVPER (no esperar IP)
+      community.vmware.vmware_guest:
         hostname: "{{ vcenter_hostname }}"
         username: "{{ vcenter_username }}"
         password: "{{ vcenter_password }}"
         validate_certs: false
         datacenter: "{{ datacenter_name }}"
         name: "{{ vm_name }}"
+        state: poweredon
         template: "{{ template_name }}"
         folder: "{{ folder }}"
-        state: poweredon
-        customization:
-          hostname: "{{ vm_name }}"
-          domain: "ktinkiy.local"
-          timezone: 215                # 🇵🇪 SA Pacific Standard Time (Lima)
-          fullname: "Konecta"
-          orgname: "Konecta"
-          autologon: false
-          autologoncount: 1
-          runonce:
-            - 'net user STSO Konecta2025$$ /add'
-            - 'net localgroup Administradores STSO /add'
-          dns_servers:
-            - 172.57.152.8
-            - 172.57.152.6
-        networks:
-          - name: "Movistar Peru 122"
-            device_type: vmxnet3
-            start_connected: true
-            type: dhcp
-      delegate_to: localhost
+        customization_spec: "MOVPER"
+        # quitar wait_for_ip_address si no quieres esperar la IP
+        wait_for_ip_address: false
       register: deploy_vm
-
-    - name: Esperar reinicio y finalización de Sysprep
-      pause:
-        minutes: 6
-      when: deploy_vm.changed
-
-    - name: Mostrar resultado final
-      debug:
-        msg: |
-          ✅ VM {{ vm_name }} creada exitosamente
-          🖥️ Hostname aplicado: {{ vm_name }}
-          👤 Usuario STSO creado con contraseña Konecta2025$$
-          🕓 Zona horaria: SA Pacific Standard Time (Lima)
