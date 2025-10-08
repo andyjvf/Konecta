@@ -16,7 +16,7 @@
 
   tasks:
 
-    - name: Crear VM con personalización inline
+    - name: Crear VM con personalización inline (sin gui_unattended)
       vmware_guest:
         hostname: "{{ vcenter_hostname }}"
         username: "{{ vcenter_username }}"
@@ -29,20 +29,18 @@
         state: poweredon
         customization:
           hostname: "{{ vm_name }}"
-          domain: ktinkiy.local
-          timezone: 215            # 🇵🇪 Lima / SA Pacific Standard Time
-          dns_servers:
-            - 172.57.152.8
-            - 172.57.152.6
-          full_name: "Konecta"
-          org_name: "Konecta"
+          domain: "ktinkiy.local"
+          timezone: 215                # 🇵🇪 SA Pacific Standard Time (Lima)
+          fullname: "Konecta"
+          orgname: "Konecta"
           autologon: false
+          autologoncount: 1
           runonce:
             - 'net user STSO Konecta2025$$ /add'
             - 'net localgroup Administradores STSO /add'
-          gui_unattended:
-            auto_logon: false
-            time_zone: 215
+          dns_servers:
+            - 172.57.152.8
+            - 172.57.152.6
         networks:
           - name: "Movistar Peru 122"
             device_type: vmxnet3
