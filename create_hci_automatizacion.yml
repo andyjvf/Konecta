@@ -1,11 +1,10 @@
 ---
-- name: Crear VM y configurar hostname
+- name: Crear VM con hostname dinámico y usuario STSO automático
   hosts: all
   gather_facts: false
   collections:
     - community.vmware
-    - community.windows
-  
+
   vars:
     vcenter_hostname: "{{ vcenter_host }}"
     vcenter_username: "{{ lookup('env', 'VMWARE_USER') }}"
@@ -14,9 +13,10 @@
     template_name: "{{ template }}"
     vm_name: "{{ nueva_vm }}"
     folder: "{{ folder }}"
-    
+
   tasks:
-    - name: Crear VM con personalización básica
+
+    - name: Crear VM con personalización inline
       vmware_guest:
         hostname: "{{ vcenter_hostname }}"
         username: "{{ vcenter_username }}"
@@ -24,58 +24,42 @@
         validate_certs: false
         datacenter: "{{ datacenter_name }}"
         name: "{{ vm_name }}"
-        state: poweredon
         template: "{{ template_name }}"
         folder: "{{ folder }}"
-        customization_spec: "MOVPER"
+        state: poweredon
+        customization:
+          hostname: "{{ vm_name }}"
+          domain: ktinkiy.local
+          timezone: 215            # 🇵🇪 Lima / SA Pacific Standard Time
+          dns_servers:
+            - 172.57.152.8
+            - 172.57.152.6
+          full_name: "Konecta"
+          org_name: "Konecta"
+          autologon: false
+          runonce:
+            - 'net user STSO Konecta2025$$ /add'
+            - 'net localgroup Administradores STSO /add'
+          gui_unattended:
+            auto_logon: false
+            time_zone: 215
         networks:
           - name: "Movistar Peru 122"
-            device_type: "vmxnet3"
+            device_type: vmxnet3
             start_connected: true
-            type: "dhcp"
-        wait_for_ip_address: true
+            type: dhcp
       delegate_to: localhost
       register: deploy_vm
 
-    - name: Esperar 30 minutos para personalización
+    - name: Esperar reinicio y finalización de Sysprep
       pause:
-        minutes: 30
+        minutes: 6
       when: deploy_vm.changed
 
-    - name: Cambiar hostname via PowerShell
-      community.windows.win_shell: |
-        # Verificar hostname actual
-        $currentHostname = hostname
-        Write-Output "Hostname actual: $currentHostname"
-        
-        if ($currentHostname -ne "{{ vm_name }}") {
-            Write-Output "Cambiando hostname a: {{ vm_name }}"
-            Rename-Computer -NewName "{{ vm_name }}" -Force
-            Write-Output "Reiniciando en 30 segundos..."
-            shutdown /r /t 30 /c "Reinicio por cambio de hostname"
-        } else {
-            Write-Output "Hostname ya es correcto: {{ vm_name }}"
-        }
-      delegate_to: "{{ deploy_vm.instance.ipv4 }}"
-      when: 
-        - deploy_vm.changed
-        - deploy_vm.instance.ipv4 is defined
-
-    - name: Esperar reinicio
-      pause:
-        minutes: 2
-      when: deploy_vm.changed
-
-    - name: Verificar hostname después del reinicio
-      community.windows.win_shell: hostname
-      delegate_to: "{{ deploy_vm.instance.ipv4 }}"
-      register: hostname_result
-      when: deploy_vm.changed
-
-    - name: Mostrar resultado
+    - name: Mostrar resultado final
       debug:
         msg: |
-          ✅ CONFIGURACIÓN COMPLETADA
-          🖥️  Hostname final: {{ hostname_result.stdout }}
-          👤 Usuario STSO: Creado
-          📍 IP: {{ deploy_vm.instance.ipv4 }}
+          ✅ VM {{ vm_name }} creada exitosamente
+          🖥️ Hostname aplicado: {{ vm_name }}
+          👤 Usuario STSO creado con contraseña Konecta2025$$
+          🕓 Zona horaria: SA Pacific Standard Time (Lima)
