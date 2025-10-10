@@ -33,7 +33,7 @@
         customization_spec: "MOVPER"  # Asegúrate de que el nombre coincida con el spec creado en vCenter
         wait_for_ip_address: true  # Espera la IP para confirmar que la VM esté lista
         networks:
-          - name: "VM Network"  # El nombre de la red a la que se conecta la VM
+          - name: "Movistar Peru 122"  # El nombre de la red a la que se conecta la VM
             ipv4:
               enabled: true
               address: "{{ ip_address }}"
