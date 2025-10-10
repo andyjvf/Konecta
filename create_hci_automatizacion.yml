@@ -12,9 +12,14 @@
     template_name: "{{ template }}"
     vm_name: "{{ nueva_vm }}"
     folder: "{{ folder }}"
+    ip_address: "172.26.120.131"
+    netmask: "255.255.255.128"
+    gateway: "172.26.120.254"
+    dns1: "172.57.152.8"
+    dns2: "172.57.152.5"
 
   tasks:
-    - name: Crear VM desde plantilla usando spec MOVPER (no esperar IP)
+    - name: Crear VM desde plantilla usando spec MOVPER
       community.vmware.vmware_guest:
         hostname: "{{ vcenter_hostname }}"
         username: "{{ vcenter_username }}"
@@ -25,7 +30,16 @@
         state: poweredon
         template: "{{ template_name }}"
         folder: "{{ folder }}"
-        customization_spec: "MOVPER"
-        # quitar wait_for_ip_address si no quieres esperar la IP
-        wait_for_ip_address: false
+        customization_spec: "MOVPER"  # Asegúrate de que el nombre coincida con el spec creado en vCenter
+        wait_for_ip_address: true  # Espera la IP para confirmar que la VM esté lista
+        networks:
+          - name: "VM Network"  # El nombre de la red a la que se conecta la VM
+            ipv4:
+              enabled: true
+              address: "{{ ip_address }}"
+              netmask: "{{ netmask }}"
+              gateway: "{{ gateway }}"
+              dns_servers:
+                - "{{ dns1 }}"
+                - "{{ dns2 }}"
       register: deploy_vm
