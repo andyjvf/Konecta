@@ -22,9 +22,13 @@
         vm_base_number: "{{ (vm_name_prefix | regex_search('[0-9]+$')) | int }}"
         vm_base_prefix: "{{ vm_name_prefix | regex_replace('[0-9]+$', '') }}"
 
+    - name: Inicializar lista de nombres
+      set_fact:
+        vm_names: []
+
     - name: Crear lista de nombres de VM
       set_fact:
-        vm_names: "{{ vm_names | default([]) + [ vm_base_prefix + ((vm_base_number + item) | string) ] }}"
+        vm_names: "{{ vm_names + [ ('%s%d' | format(vm_base_prefix, (vm_base_number + item))) ] }}"
       loop: "{{ range(0, num_clones) | list }}"
 
     - name: Mostrar lista de VMs a crear
