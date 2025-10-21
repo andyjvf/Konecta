@@ -1,17 +1,22 @@
 ---
-- name: Clone VMs from Template HCIMOVPER
+- name: Clone Multiple VMs from Template HCIMOVPER
   hosts: all
   gather_facts: false
   vars:
-    vcenter_host: "pesudvsisvc02.ktinkiy.local"          # Host o IP de tu vCenter
-    template_name: "TMPMOVPERU"                      # Nombre del template en vCenter
-    vm_name_prefix: "HCIMOVPER"                         # Prefijo de las VMs nuevas
-    starting_number: 101                                # Número inicial
-    vm_count: 30                                         # Cantidad de VMs a crear
-    datacenter: "VxRail-Datacenter"                     # Datacenter
-    cluster: "VxRail-Virtual-SAN"                       # Cluster
-    datastore: "VxRail-Virtual-SAN-Datastore-10304fd9-470e-40e9-8bca-a81d66b0843e"
-    network: "Movistar Peru 122"                        # Nombre de red en vCenter
+    # Variables que definirás en AWX
+    vcenter_host: "{{ vcenter_host }}"
+    datacenter: "{{ datacenter }}"
+    template_name: "{{ template }}"
+    vm_name_prefix: "{{ vm_name_prefix }}"
+    starting_number: "{{ starting_number | int }}"
+    vm_count: "{{ vm_count | int }}"
+    folder: "{{ folder }}"
+    
+    # Variables fijas o que puedes agregar en AWX si necesitas
+    cluster: "{{ cluster | default('VxRail-Virtual-SAN') }}"
+    datastore: "{{ datastore | default('VxRail-Virtual-SAN-Datastore-10304fd9-470e-40e9-8bca-a81d66b0843e') }}"
+    network: "{{ network | default('Movistar Peru 122') }}"
+    domain: "{{ domain | default('ktinkiy.local') }}"
 
   tasks:
     - name: Generate empty VM list
@@ -30,12 +35,13 @@
     - name: Validate vCenter connection
       vmware_guest_info:
         hostname: "{{ vcenter_host }}"
-        username: "{{ vcenter_username }}"
-        password: "{{ vcenter_password }}"
+        username: "{{ ansible_user }}"
+        password: "{{ ansible_password }}"
         validate_certs: false
         datacenter: "{{ datacenter }}"
       register: vcenter_info
       delegate_to: localhost
+      ignore_errors: yes
 
     - name: Check if template exists
       vmware_guest_info:
@@ -48,6 +54,11 @@
       register: template_info
       delegate_to: localhost
 
+    - name: Fail if template not found
+      fail:
+        msg: "Template '{{ template_name }}' not found in datacenter '{{ datacenter }}'"
+      when: template_info.instance is not defined
+
     - name: Clone VMs from template
       vmware_guest:
         hostname: "{{ vcenter_host }}"
@@ -55,6 +66,7 @@
         password: "{{ ansible_password }}"
         validate_certs: false
         datacenter: "{{ datacenter }}"
+        folder: "{{ folder }}"
         name: "{{ item }}"
         template: "{{ template_name }}"
         cluster: "{{ cluster }}"
@@ -64,11 +76,25 @@
             device_type: "vmxnet3"
         customization:
           hostname: "{{ item }}"
-          domain: "ktinkiy.local"
-        state: poweredoff         # ← Para que NO se enciendan al clonarse
+          domain: "{{ domain }}"
+        state: poweredoff
       loop: "{{ vms }}"
       delegate_to: localhost
       register: vm_creation_results
+      async: 3600
+      poll: 0
+
+    - name: Wait for all VMs to be created
+      async_status:
+        jid: "{{ item.ansible_job_id }}"
+      loop: "{{ vm_creation_results.results }}"
+      loop_control:
+        label: "{{ item.item }}"
+      register: async_results
+      until: async_results.finished
+      retries: 30
+      delay: 60
+      delegate_to: localhost
 
     - name: Verify VMs were created successfully
       vmware_guest_info:
@@ -82,6 +108,12 @@
       delegate_to: localhost
       register: vm_verification
 
+    - name: Show creation results
+      debug:
+        msg: "VM {{ item.item }} created successfully - Power State: {{ item.instance.power_state }}"
+      loop: "{{ vm_verification.results }}"
+      when: item.instance is defined
+
     - name: Show final summary
       debug:
         msg: |
@@ -92,7 +124,11 @@
 
           Configuration used:
           - vCenter: {{ vcenter_host }}
+          - Datacenter: {{ datacenter }}
+          - Folder: {{ folder }}
           - Template: {{ template_name }}
           - Network: {{ network }}
+          - Cluster: {{ cluster }}
           - Starting number: {{ starting_number }}
           - VM count: {{ vm_count }}
+          - Total VMs created: {{ vms | length }}
