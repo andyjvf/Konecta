@@ -6,8 +6,8 @@
     vcenter_host: "pesudvsisvc02.ktinkiy.local"          # Host o IP de tu vCenter
     template_name: "TMPMOVPERU"                      # Nombre del template en vCenter
     vm_name_prefix: "HCIMOVPER"                         # Prefijo de las VMs nuevas
-    starting_number: 102                                # Número inicial
-    vm_count: 1                                         # Cantidad de VMs a crear
+    starting_number: 101                                # Número inicial
+    vm_count: 30                                         # Cantidad de VMs a crear
     datacenter: "VxRail-Datacenter"                     # Datacenter
     cluster: "VxRail-Virtual-SAN"                       # Cluster
     datastore: "VxRail-Virtual-SAN-Datastore-10304fd9-470e-40e9-8bca-a81d66b0843e"
