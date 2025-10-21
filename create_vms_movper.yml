@@ -32,7 +32,7 @@
         password: "{{ vcenter_password }}"
         validate_certs: false
         datacenter: "{{ datacenter_name }}"
-        name: "{{ vm_base_prefix ~ (vm_base_number + i) }}"
+        name: "{{ vm_base_prefix }}{{ (vm_base_number + i) | string }}"
         state: poweredon
         template: "{{ template_name }}"
         cluster: "{{ cluster_name }}"
