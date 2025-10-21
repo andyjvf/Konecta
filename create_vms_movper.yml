@@ -12,7 +12,6 @@
     datacenter_name: "{{ datacenter }}"
     template_name: "{{ template }}"
     vm_name_prefix: "{{ nueva_vm }}"   # Ejemplo: HCIMOVPER201
-    num_clones: 3                     # 🔁 Número de clones a crear
     cluster_name: "{{ cluster | default(omit) }}"
     datastore_name: "{{ datastore | default(omit) }}"
     vm_folder: "{{ folder | default(omit) }}"
@@ -20,7 +19,7 @@
   tasks:
     - name: Calcular número base del nombre
       set_fact:
-        vm_base_number: "{{ vm_name_prefix | regex_search('[0-9]+$') | int }}"
+        vm_base_number: "{{ (vm_name_prefix | regex_search('[0-9]+$')) | int }}"
         vm_base_prefix: "{{ vm_name_prefix | regex_replace('[0-9]+$', '') }}"
 
     - name: Crear VMs consecutivas
@@ -33,7 +32,7 @@
         password: "{{ vcenter_password }}"
         validate_certs: false
         datacenter: "{{ datacenter_name }}"
-        name: "{{ vm_base_prefix }}{{ (vm_base_number + i) | string }}"
+        name: "{{ vm_base_prefix ~ (vm_base_number + i) }}"
         state: poweredon
         template: "{{ template_name }}"
         cluster: "{{ cluster_name }}"
