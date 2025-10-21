@@ -51,25 +51,25 @@
           - VM Count: {{ vm_count }}
           - Total VMs: {{ vms | length }}
 
-    - name: Validate vCenter connection using vmware_vm_info
-      vmware_vm_info:
+    - name: Validate vCenter connection by checking datacenter
+      community.vmware.vmware_datacenter_info:
         hostname: "{{ vcenter_host }}"
         username: "{{ vcenter_username }}"
         password: "{{ vcenter_password }}"
         validate_certs: false
-        datacenter: "{{ datacenter }}"
       register: vcenter_info
       delegate_to: localhost
       ignore_errors: yes
 
-    - name: Check vCenter connection result
-      fail:
-        msg: "❌ No se pudo conectar a vCenter {{ vcenter_host }}. Verifica credenciales y conectividad. Error: {{ vcenter_info.msg | default('Unknown error') }}"
-      when: vcenter_info.failed
-
-    - name: Confirm vCenter connection successful
+    - name: Check if vCenter connection is successful
       debug:
-        msg: "✅ Conexión a vCenter {{ vcenter_host }} exitosa"
+        msg: "✅ Conexión a vCenter {{ vcenter_host }} exitosa. Datacenters disponibles: {{ vcenter_info.datacenters | map(attribute='name') | list }}"
+      when: not vcenter_info.failed
+
+    - name: Fail if vCenter connection failed
+      fail:
+        msg: "❌ No se pudo conectar a vCenter {{ vcenter_host }}. Verifica credenciales y conectividad. Error: {{ vcenter_info.msg | default('Credenciales incorrectas o servidor no disponible') }}"
+      when: vcenter_info.failed
 
     - name: Check if template exists
       vmware_guest_info:
@@ -84,7 +84,7 @@
 
     - name: Fail if template not found
       fail:
-        msg: "❌ Template '{{ template_name }}' no encontrado en datacenter '{{ datacenter }}'. Verifica el nombre."
+        msg: "❌ Template '{{ template_name }}' no encontrado en datacenter '{{ datacenter }}'. Verifica el nombre del template y datacenter."
       when: template_info.instance is not defined
 
     - name: Confirm template found
@@ -161,3 +161,11 @@
           {% for result in vm_verification.results %}
           - {{ result.item }}: {% if result.instance is defined %}✅ EXITOSA{% else %}❌ FALLIDA{% endif %}
           {% endfor %}
+          
+          ⚙️ CONFIGURACIÓN USADA:
+          - vCenter: {{ vcenter_host }}
+          - Datacenter: {{ datacenter }}
+          - Template: {{ template_name }}
+          - Folder: {{ folder }}
+          - Cluster: {{ cluster }}
+          - Network: {{ network }}
