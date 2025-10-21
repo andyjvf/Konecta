@@ -1,171 +1,48 @@
 ---
-- name: Clone Multiple VMs from Template HCIMOVPER
+- name: Crear múltiples VMs desde un template en vCenter
   hosts: all
   gather_facts: false
+  collections:
+    - community.vmware
+
   vars:
-    # VARIABLES PRINCIPALES - SE DEFINEN EN AWX
-    vcenter_host: "{{ vcenter_host }}"
-    vcenter_username: "{{ vcenter_username }}"
-    vcenter_password: "{{ vcenter_password }}"
-    datacenter: "{{ datacenter }}"
-    template_name: "{{ template_name }}"
-    vm_name_prefix: "{{ vm_name_prefix }}"
-    starting_number: "{{ starting_number | int }}"
-    vm_count: "{{ vm_count | int }}"
-    folder: "{{ folder }}"
-    
-    # VARIABLES DE INFRAESTRUCTURA - SE DEFINEN EN AWX
-    cluster: "{{ cluster }}"
-    datastore: "{{ datastore }}"
-    network: "{{ network }}"
-    domain: "{{ domain }}"
+    vcenter_hostname: "{{ vcenter_host }}"
+    vcenter_username: "{{ lookup('env', 'VMWARE_USER') }}"
+    vcenter_password: "{{ lookup('env', 'VMWARE_PASSWORD') }}"
+    datacenter_name: "{{ datacenter }}"
+    template_name: "{{ template }}"
+    vm_name_prefix: "{{ nueva_vm }}"   # Ejemplo: HCIMOVPER201
+    num_clones: 3                     # 🔁 Número de clones a crear
+    cluster_name: "{{ cluster | default(omit) }}"
+    datastore_name: "{{ datastore | default(omit) }}"
+    vm_folder: "{{ folder | default(omit) }}"
 
   tasks:
-    - name: Generate empty VM list
+    - name: Calcular número base del nombre
       set_fact:
-        vms: []
+        vm_base_number: "{{ vm_name_prefix | regex_search('[0-9]+$') | int }}"
+        vm_base_prefix: "{{ vm_name_prefix | regex_replace('[0-9]+$', '') }}"
 
-    - name: Build VM names list
-      set_fact:
-        vms: "{{ vms + [vm_name_prefix + '-' + (starting_number + item)|string] }}"
-      loop: "{{ range(0, vm_count) | list }}"
-
-    - name: Show VMs to be created
-      debug:
-        msg: "VMs to create: {{ vms }}"
-
-    - name: Show configuration summary
-      debug:
-        msg: |
-          📋 CONFIGURACIÓN A USAR:
-          - vCenter: {{ vcenter_host }}
-          - Datacenter: {{ datacenter }}
-          - Template: {{ template_name }}
-          - Folder: {{ folder }}
-          - Cluster: {{ cluster }}
-          - Datastore: {{ datastore }}
-          - Network: {{ network }}
-          - Domain: {{ domain }}
-          - VM Name Pattern: {{ vm_name_prefix }}-XXX
-          - Starting Number: {{ starting_number }}
-          - VM Count: {{ vm_count }}
-          - Total VMs: {{ vms | length }}
-
-    - name: Validate vCenter connection by checking datacenter
-      community.vmware.vmware_datacenter_info:
-        hostname: "{{ vcenter_host }}"
-        username: "{{ vcenter_username }}"
-        password: "{{ vcenter_password }}"
-        validate_certs: false
-      register: vcenter_info
-      delegate_to: localhost
-      ignore_errors: yes
-
-    - name: Check if vCenter connection is successful
-      debug:
-        msg: "✅ Conexión a vCenter {{ vcenter_host }} exitosa. Datacenters disponibles: {{ vcenter_info.datacenters | map(attribute='name') | list }}"
-      when: not vcenter_info.failed
-
-    - name: Fail if vCenter connection failed
-      fail:
-        msg: "❌ No se pudo conectar a vCenter {{ vcenter_host }}. Verifica credenciales y conectividad. Error: {{ vcenter_info.msg | default('Credenciales incorrectas o servidor no disponible') }}"
-      when: vcenter_info.failed
-
-    - name: Check if template exists
-      vmware_guest_info:
-        hostname: "{{ vcenter_host }}"
-        username: "{{ vcenter_username }}"
-        password: "{{ vcenter_password }}"
-        validate_certs: false
-        datacenter: "{{ datacenter }}"
-        name: "{{ template_name }}"
-      register: template_info
-      delegate_to: localhost
-
-    - name: Fail if template not found
-      fail:
-        msg: "❌ Template '{{ template_name }}' no encontrado en datacenter '{{ datacenter }}'. Verifica el nombre del template y datacenter."
-      when: template_info.instance is not defined
-
-    - name: Confirm template found
-      debug:
-        msg: "✅ Template encontrado: {{ template_name }} ({{ template_info.instance.hw_name }})"
-
-    - name: Clone VMs from template
-      vmware_guest:
-        hostname: "{{ vcenter_host }}"
-        username: "{{ vcenter_username }}"
-        password: "{{ vcenter_password }}"
-        validate_certs: false
-        datacenter: "{{ datacenter }}"
-        folder: "{{ folder }}"
-        name: "{{ item }}"
-        template: "{{ template_name }}"
-        cluster: "{{ cluster }}"
-        datastore: "{{ datastore }}"
-        networks:
-          - name: "{{ network }}"
-            device_type: "vmxnet3"
-        customization:
-          hostname: "{{ item }}"
-          domain: "{{ domain }}"
-        state: poweredoff
-      loop: "{{ vms }}"
-      delegate_to: localhost
-      register: vm_creation_results
-      async: 3600
-      poll: 0
-
-    - name: Wait for VM creation to complete
-      async_status:
-        jid: "{{ item.ansible_job_id }}"
-      loop: "{{ vm_creation_results.results }}"
+    - name: Crear VMs consecutivas
+      loop: "{{ range(0, num_clones) | list }}"
       loop_control:
-        label: "{{ item.item }}"
-      register: async_results
-      until: async_results.finished
-      retries: 30
-      delay: 60
-      delegate_to: localhost
-      when: vm_creation_results.results is defined
-
-    - name: Verify VMs were created successfully
-      vmware_guest_info:
-        hostname: "{{ vcenter_host }}"
+        loop_var: i
+      vmware_guest:
+        hostname: "{{ vcenter_hostname }}"
         username: "{{ vcenter_username }}"
         password: "{{ vcenter_password }}"
         validate_certs: false
-        datacenter: "{{ datacenter }}"
-        name: "{{ item }}"
-      loop: "{{ vms }}"
+        datacenter: "{{ datacenter_name }}"
+        name: "{{ vm_base_prefix }}{{ (vm_base_number + i) | string }}"
+        state: poweredon
+        template: "{{ template_name }}"
+        cluster: "{{ cluster_name }}"
+        folder: "{{ vm_folder }}"
+        datastore: "{{ datastore_name }}"
+        wait_for_ip_address: true
       delegate_to: localhost
-      register: vm_verification
+      register: deploy_vms
 
-    - name: Show individual VM creation status
+    - name: Mostrar información de las VMs creadas
       debug:
-        msg: "VM {{ item.item }} - Estado: {% if item.instance is defined %}✅ CREADA ({{ item.instance.power_state }}){% else %}❌ FALLÓ{% endif %}"
-      loop: "{{ vm_verification.results }}"
-
-    - name: Show final summary
-      debug:
-        msg: |
-          🎯 RESUMEN FINAL DE CREACIÓN DE VMs:
-          ====================================
-          {% set success_count = vm_verification.results | selectattr('instance', 'defined') | list | count %}
-          {% set failed_count = vm_verification.results | rejectattr('instance', 'defined') | list | count %}
-          
-          ✅ VMs EXITOSAS: {{ success_count }}
-          {% if failed_count > 0 %}❌ VMs FALLIDAS: {{ failed_count }}{% endif %}
-          
-          📋 DETALLE:
-          {% for result in vm_verification.results %}
-          - {{ result.item }}: {% if result.instance is defined %}✅ EXITOSA{% else %}❌ FALLIDA{% endif %}
-          {% endfor %}
-          
-          ⚙️ CONFIGURACIÓN USADA:
-          - vCenter: {{ vcenter_host }}
-          - Datacenter: {{ datacenter }}
-          - Template: {{ template_name }}
-          - Folder: {{ folder }}
-          - Cluster: {{ cluster }}
-          - Network: {{ network }}
+        var: deploy_vms.results
