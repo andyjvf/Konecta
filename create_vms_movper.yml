@@ -17,22 +17,31 @@
     vm_folder: "{{ folder | default(omit) }}"
 
   tasks:
-    - name: Calcular número base del nombre
+    - name: Calcular número base y prefijo del nombre
       set_fact:
         vm_base_number: "{{ (vm_name_prefix | regex_search('[0-9]+$')) | int }}"
         vm_base_prefix: "{{ vm_name_prefix | regex_replace('[0-9]+$', '') }}"
 
-    - name: Crear VMs consecutivas
+    - name: Crear lista de nombres de VM
+      set_fact:
+        vm_names: "{{ vm_names | default([]) + [ vm_base_prefix + ((vm_base_number + item) | string) ] }}"
       loop: "{{ range(0, num_clones) | list }}"
+
+    - name: Mostrar lista de VMs a crear
+      debug:
+        var: vm_names
+
+    - name: Crear VMs consecutivas
+      loop: "{{ vm_names }}"
       loop_control:
-        loop_var: i
+        loop_var: vmname
       vmware_guest:
         hostname: "{{ vcenter_hostname }}"
         username: "{{ vcenter_username }}"
         password: "{{ vcenter_password }}"
         validate_certs: false
         datacenter: "{{ datacenter_name }}"
-        name: "{{ vm_base_prefix }}{{ (vm_base_number + i) | string }}"
+        name: "{{ vmname }}"
         state: poweredon
         template: "{{ template_name }}"
         cluster: "{{ cluster_name }}"
