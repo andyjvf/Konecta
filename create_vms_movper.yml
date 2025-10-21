@@ -11,7 +11,7 @@
     vcenter_password: "{{ lookup('env', 'VMWARE_PASSWORD') }}"
     datacenter_name: "{{ datacenter }}"
     template_name: "{{ template }}"
-    vm_name_prefix: "{{ nueva_vm }}"   # Ejemplo: HCIMOVPER201
+    vm_name_prefix: "{{ nueva_vm }}"
     cluster_name: "{{ cluster | default(omit) }}"
     datastore_name: "{{ datastore | default(omit) }}"
     vm_folder: "{{ folder | default(omit) }}"
@@ -22,16 +22,21 @@
         vm_base_number: "{{ (vm_name_prefix | regex_search('[0-9]+$')) | int }}"
         vm_base_prefix: "{{ vm_name_prefix | regex_replace('[0-9]+$', '') }}"
 
-    - name: Inicializar lista de nombres
+    - name: Generar lista de nombres de VM
       set_fact:
-        vm_names: []
+        vm_names: "{{ range(0, num_clones) | map('int') | list | map('community.general.json_query', 'to_string(@)') | list }}"
+      vars:
+        # Este bloque fuerza la creación manual usando Jinja 'do'
+        _tmp_names: |
+          {% set nombres = [] %}
+          {% for i in range(0, num_clones) %}
+          {% set _ = nombres.append(vm_base_prefix ~ (vm_base_number + i)|string) %}
+          {% endfor %}
+          {{ nombres }}
 
-    - name: Crear lista de nombres de VM
-      set_fact:
-        vm_names: "{{ vm_names + [ ('%s%d' | format(vm_base_prefix, (vm_base_number + item))) ] }}"
-      loop: "{{ range(0, num_clones) | list }}"
+        vm_names: "{{ _tmp_names | from_yaml }}"
 
-    - name: Mostrar lista de VMs a crear
+    - name: Mostrar lista generada
       debug:
         var: vm_names
 
