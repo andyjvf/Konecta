@@ -51,8 +51,8 @@
           - VM Count: {{ vm_count }}
           - Total VMs: {{ vms | length }}
 
-    - name: Validate vCenter connection
-      vmware_guest_info:
+    - name: Validate vCenter connection using vmware_vm_info
+      vmware_vm_info:
         hostname: "{{ vcenter_host }}"
         username: "{{ vcenter_username }}"
         password: "{{ vcenter_password }}"
@@ -64,8 +64,12 @@
 
     - name: Check vCenter connection result
       fail:
-        msg: "❌ No se pudo conectar a vCenter {{ vcenter_host }}. Verifica credenciales y conectividad."
+        msg: "❌ No se pudo conectar a vCenter {{ vcenter_host }}. Verifica credenciales y conectividad. Error: {{ vcenter_info.msg | default('Unknown error') }}"
       when: vcenter_info.failed
+
+    - name: Confirm vCenter connection successful
+      debug:
+        msg: "✅ Conexión a vCenter {{ vcenter_host }} exitosa"
 
     - name: Check if template exists
       vmware_guest_info:
