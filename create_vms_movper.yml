@@ -3,20 +3,22 @@
   hosts: all
   gather_facts: false
   vars:
-    # Variables que definirás en AWX
+    # VARIABLES PRINCIPALES - SE DEFINEN EN AWX
     vcenter_host: "{{ vcenter_host }}"
+    vcenter_username: "{{ vcenter_username }}"
+    vcenter_password: "{{ vcenter_password }}"
     datacenter: "{{ datacenter }}"
-    template_name: "{{ template }}"
+    template_name: "{{ template_name }}"
     vm_name_prefix: "{{ vm_name_prefix }}"
     starting_number: "{{ starting_number | int }}"
     vm_count: "{{ vm_count | int }}"
     folder: "{{ folder }}"
     
-    # Variables fijas o que puedes agregar en AWX si necesitas
-    cluster: "{{ cluster | default('VxRail-Virtual-SAN') }}"
-    datastore: "{{ datastore | default('VxRail-Virtual-SAN-Datastore-10304fd9-470e-40e9-8bca-a81d66b0843e') }}"
-    network: "{{ network | default('Movistar Peru 122') }}"
-    domain: "{{ domain | default('ktinkiy.local') }}"
+    # VARIABLES DE INFRAESTRUCTURA - SE DEFINEN EN AWX
+    cluster: "{{ cluster }}"
+    datastore: "{{ datastore }}"
+    network: "{{ network }}"
+    domain: "{{ domain }}"
 
   tasks:
     - name: Generate empty VM list
@@ -32,22 +34,44 @@
       debug:
         msg: "VMs to create: {{ vms }}"
 
+    - name: Show configuration summary
+      debug:
+        msg: |
+          📋 CONFIGURACIÓN A USAR:
+          - vCenter: {{ vcenter_host }}
+          - Datacenter: {{ datacenter }}
+          - Template: {{ template_name }}
+          - Folder: {{ folder }}
+          - Cluster: {{ cluster }}
+          - Datastore: {{ datastore }}
+          - Network: {{ network }}
+          - Domain: {{ domain }}
+          - VM Name Pattern: {{ vm_name_prefix }}-XXX
+          - Starting Number: {{ starting_number }}
+          - VM Count: {{ vm_count }}
+          - Total VMs: {{ vms | length }}
+
     - name: Validate vCenter connection
       vmware_guest_info:
         hostname: "{{ vcenter_host }}"
-        username: "{{ ansible_user }}"
-        password: "{{ ansible_password }}"
+        username: "{{ vcenter_username }}"
+        password: "{{ vcenter_password }}"
         validate_certs: false
         datacenter: "{{ datacenter }}"
       register: vcenter_info
       delegate_to: localhost
       ignore_errors: yes
 
+    - name: Check vCenter connection result
+      fail:
+        msg: "❌ No se pudo conectar a vCenter {{ vcenter_host }}. Verifica credenciales y conectividad."
+      when: vcenter_info.failed
+
     - name: Check if template exists
       vmware_guest_info:
         hostname: "{{ vcenter_host }}"
-        username: "{{ ansible_user }}"
-        password: "{{ ansible_password }}"
+        username: "{{ vcenter_username }}"
+        password: "{{ vcenter_password }}"
         validate_certs: false
         datacenter: "{{ datacenter }}"
         name: "{{ template_name }}"
@@ -56,14 +80,18 @@
 
     - name: Fail if template not found
       fail:
-        msg: "Template '{{ template_name }}' not found in datacenter '{{ datacenter }}'"
+        msg: "❌ Template '{{ template_name }}' no encontrado en datacenter '{{ datacenter }}'. Verifica el nombre."
       when: template_info.instance is not defined
+
+    - name: Confirm template found
+      debug:
+        msg: "✅ Template encontrado: {{ template_name }} ({{ template_info.instance.hw_name }})"
 
     - name: Clone VMs from template
       vmware_guest:
         hostname: "{{ vcenter_host }}"
-        username: "{{ ansible_user }}"
-        password: "{{ ansible_password }}"
+        username: "{{ vcenter_username }}"
+        password: "{{ vcenter_password }}"
         validate_certs: false
         datacenter: "{{ datacenter }}"
         folder: "{{ folder }}"
@@ -84,7 +112,7 @@
       async: 3600
       poll: 0
 
-    - name: Wait for all VMs to be created
+    - name: Wait for VM creation to complete
       async_status:
         jid: "{{ item.ansible_job_id }}"
       loop: "{{ vm_creation_results.results }}"
@@ -95,12 +123,13 @@
       retries: 30
       delay: 60
       delegate_to: localhost
+      when: vm_creation_results.results is defined
 
     - name: Verify VMs were created successfully
       vmware_guest_info:
         hostname: "{{ vcenter_host }}"
-        username: "{{ ansible_user }}"
-        password: "{{ ansible_password }}"
+        username: "{{ vcenter_username }}"
+        password: "{{ vcenter_password }}"
         validate_certs: false
         datacenter: "{{ datacenter }}"
         name: "{{ item }}"
@@ -108,27 +137,23 @@
       delegate_to: localhost
       register: vm_verification
 
-    - name: Show creation results
+    - name: Show individual VM creation status
       debug:
-        msg: "VM {{ item.item }} created successfully - Power State: {{ item.instance.power_state }}"
+        msg: "VM {{ item.item }} - Estado: {% if item.instance is defined %}✅ CREADA ({{ item.instance.power_state }}){% else %}❌ FALLÓ{% endif %}"
       loop: "{{ vm_verification.results }}"
-      when: item.instance is defined
 
     - name: Show final summary
       debug:
         msg: |
-          ✅ VMs CREATED SUCCESSFULLY:
-          {% for vm in vms %}
-          - {{ vm }}
+          🎯 RESUMEN FINAL DE CREACIÓN DE VMs:
+          ====================================
+          {% set success_count = vm_verification.results | selectattr('instance', 'defined') | list | count %}
+          {% set failed_count = vm_verification.results | rejectattr('instance', 'defined') | list | count %}
+          
+          ✅ VMs EXITOSAS: {{ success_count }}
+          {% if failed_count > 0 %}❌ VMs FALLIDAS: {{ failed_count }}{% endif %}
+          
+          📋 DETALLE:
+          {% for result in vm_verification.results %}
+          - {{ result.item }}: {% if result.instance is defined %}✅ EXITOSA{% else %}❌ FALLIDA{% endif %}
           {% endfor %}
-
-          Configuration used:
-          - vCenter: {{ vcenter_host }}
-          - Datacenter: {{ datacenter }}
-          - Folder: {{ folder }}
-          - Template: {{ template_name }}
-          - Network: {{ network }}
-          - Cluster: {{ cluster }}
-          - Starting number: {{ starting_number }}
-          - VM count: {{ vm_count }}
-          - Total VMs created: {{ vms | length }}
